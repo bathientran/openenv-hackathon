@@ -931,6 +931,8 @@ class RecruitopenenvEnvironment(Environment):
         self._negotiation_round = 0
         self._negotiation_score_bonus = 0
         self._negotiation_concerns = []
+        # Interaction tracking
+        self._last_contact_step = 0
 
     def _make_obs(self, reward=0.0, done=False, feedback=""):
         return RecruitopenenvObservation(
@@ -962,6 +964,7 @@ class RecruitopenenvEnvironment(Environment):
         self._negotiation_round = 0
         self._negotiation_score_bonus = 0
         self._negotiation_concerns = []
+        self._last_contact_step = 0
 
         return self._make_obs(
             feedback=_api(200, driver=self._driver["name"], jobs=len(self._jobs))
@@ -989,6 +992,16 @@ class RecruitopenenvEnvironment(Environment):
         if self._state.step_count >= MAX_STEPS:
             self._crm["stage"] = "ghosted"
             return self._make_obs(reward=-3.0, done=True, feedback=_api(200, result="ghosted", reason="timeout"))
+
+        # Passive trust decay — driver loses patience while recruiter isn't talking to them
+        idle_gap = self._state.step_count - self._last_contact_step
+        if idle_gap > 2:
+            # Accelerating decay: longer silence = faster trust loss
+            idle_decay = 0.01 * (idle_gap - 2)
+            self._driver["trust"] = max(0.0, self._driver["trust"] - idle_decay)
+            if self._driver["trust"] <= 0.1:
+                self._crm["stage"] = "ghosted"
+                return self._make_obs(reward=-4.0, done=True, feedback=_api(200, result="ghosted", message=_respond_ghosted(self._driver)))
 
         # Route to handler
         if tool == "crm":
@@ -1065,8 +1078,16 @@ class RecruitopenenvEnvironment(Environment):
     def _handle_messaging(self, act, action):
         if act == "send_message":
             topic = action.topic
+
+            # Invalid topic — message still reaches driver, they're confused
             if topic not in VALID_TOPICS:
-                return self._make_obs(reward=-1.0, feedback=_api(400, error="unknown_topic", topic=topic))
+                self._last_contact_step = self._state.step_count
+                self._driver["trust"] = max(0.0, self._driver["trust"] - self._driver["decay"] * 2)
+                if self._driver["trust"] <= 0.1:
+                    self._crm["stage"] = "ghosted"
+                    return self._make_obs(reward=-4.0, done=True, feedback=_api(200, result="ghosted", message=_respond_ghosted(self._driver)))
+                self._pending_reply = ("I'm not sure what you're asking about.", topic)
+                return self._make_obs(reward=-1.0, feedback=_api(200, topic=topic, warning="driver_confused"))
 
             # Penalty for skipping CRM read, but still send
             penalty = 0.0
@@ -1076,6 +1097,8 @@ class RecruitopenenvEnvironment(Environment):
             if self._pending_reply is not None:
                 penalty -= 1.0
                 self._pending_reply = None
+
+            self._last_contact_step = self._state.step_count
 
             # Trust decay on each message
             self._driver["trust"] = max(0.0, self._driver["trust"] - self._driver["decay"])
@@ -1098,6 +1121,7 @@ class RecruitopenenvEnvironment(Environment):
         elif act == "read_reply":
             if self._pending_reply is None:
                 return self._make_obs(reward=-0.5, feedback=_api(200, reply=None))
+            self._last_contact_step = self._state.step_count
 
             response, topic = self._pending_reply
             self._pending_reply = None
@@ -1208,7 +1232,10 @@ class RecruitopenenvEnvironment(Environment):
                 return "NEGOTIATION_EXHAUSTED", -2.0
 
             self._negotiation_round += 1
-            job = [j for j in self._jobs if j["job_id"] == self._matched_job_id][0]
+            matches = [j for j in self._jobs if j["job_id"] == self._matched_job_id]
+            if not matches:
+                return None, -1.0
+            job = matches[0]
             if not self._negotiation_concerns:
                 self._negotiation_concerns = _get_negotiation_concerns(self._driver, job)
             response = _respond_negotiation(self._driver, topic, job, self._negotiation_concerns)
