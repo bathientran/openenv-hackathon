@@ -190,6 +190,11 @@ def rollout_once(trainer, env, tokenizer, prompt_text, system_prompt, max_turns=
         if not result.done:
             messages.append({"role": "user", "content": format_observation(obs)})
 
+    # Truncate to fit max_completion_length (TRL doesn't truncate rollout_func outputs)
+    max_len = 512
+    completion_ids = completion_ids[:max_len]
+    logprobs = logprobs[:max_len]
+
     return {
         "prompt_ids": prompt_ids,
         "completion_ids": completion_ids,
