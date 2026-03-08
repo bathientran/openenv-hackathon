@@ -93,18 +93,15 @@ def format_observation(obs):
 
 
 def format_observation_compact(obs):
-    """Ultra-compact observation for embedding in completion_ids (~5-10 tokens)."""
-    # Just stage + short status keyword, e.g. "contacted|OK" or "lead|REPLY"
-    fb = ""
-    if obs.feedback:
-        # Extract just first word or short status
-        fb = obs.feedback.split(".")[0].split(",")[0][:30]
-    status = obs.stage
+    """Compact observation for embedding in completion_ids (~30-60 tokens)."""
+    parts = [f"Stage: {obs.stage}"]
     if obs.pending_reply:
-        status += "|REPLY"
-    if fb:
-        status += "|" + fb
-    return status
+        parts.append("PENDING REPLY")
+    if obs.feedback:
+        parts.append(obs.feedback[:200])
+    if obs.discovered_info:
+        parts.append(obs.discovered_info[:200])
+    return "\n".join(parts)
 
 
 def parse_action(text):
@@ -157,7 +154,7 @@ def parse_action(text):
 # --- Multi-turn rollout ---
 
 ENV_URL = "http://localhost:8001"
-MAX_COMPLETION_TOKENS = 768
+MAX_COMPLETION_TOKENS = 1536
 
 
 def _build_chat_transition(tokenizer, obs_text):
@@ -173,7 +170,7 @@ def _build_chat_transition(tokenizer, obs_text):
     nl = tokenizer.encode("\n", add_special_tokens=False)
     user_tag = tokenizer.encode("user", add_special_tokens=False)
     asst_tag = tokenizer.encode("assistant", add_special_tokens=False)
-    obs_ids = tokenizer.encode(obs_text, add_special_tokens=False)[:10]
+    obs_ids = tokenizer.encode(obs_text, add_special_tokens=False)[:60]
 
     # <|im_end|>\n<|im_start|>user\n{obs}<|im_end|>\n<|im_start|>assistant\n
     return (
@@ -332,7 +329,7 @@ def main():
     parser.add_argument("--num-generations", type=int, default=4, help="GRPO generations per prompt")
     parser.add_argument("--batch-size", type=int, default=2, help="Per-device batch size")
     parser.add_argument("--epochs", type=int, default=1, help="Number of training epochs")
-    parser.add_argument("--lr", type=float, default=5e-5, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=5e-6, help="Learning rate")
     parser.add_argument("--output-dir", default="./recruit-grpo-output", help="Output directory")
     parser.add_argument("--vllm-mode", default="colocate", choices=["colocate", "server"],
                         help="vLLM mode: colocate (1 GPU) or server (2+ GPUs)")
@@ -389,7 +386,7 @@ def main():
         vllm_mode=args.vllm_mode,
         num_train_epochs=args.epochs,
         num_generations=args.num_generations,
-        max_completion_length=768,
+        max_completion_length=1536,
         per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=4,
         gradient_checkpointing=True,

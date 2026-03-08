@@ -1,7 +1,7 @@
 ---
-title: Recruitopenenv Environment Server
-emoji: 🎪
-colorFrom: indigo
+title: Driver Recruit Environment
+emoji: 🚛
+colorFrom: blue
 colorTo: green
 sdk: docker
 pinned: false
@@ -9,247 +9,115 @@ app_port: 8000
 base_path: /web
 tags:
   - openenv
+  - reinforcement-learning
+  - recruiting
+  - multi-turn
 ---
 
-# Recruitopenenv Environment
+# 🚛 Driver Recruit Environment
 
-A simple test environment that echoes back messages. Perfect for testing the env APIs as well as demonstrating environment usage patterns.
+A **multi-turn, tool-based RL environment** for training LLMs to recruit truck drivers through a CRM system. Built on [OpenEnv 0.2.1](https://github.com/meta-pytorch/OpenEnv).
+
+The agent must discover driver qualifications through conversation, record info in the CRM, get management approval, and hire — all using structured tool calls across 15-40+ step episodes.
+
+## Pipeline
+
+```
+lead → contacted → interested → approval_pending → offer_sent → hired
+```
+
+## Tools
+
+| Tool | Actions | Purpose |
+|------|---------|---------|
+| **crm** | `read_candidate`, `update_stage`, `update_field`, `add_note` | Manage pipeline & record info |
+| **messaging** | `send_message`, `read_reply` | Screen driver (18 topics) |
+| **approval** | `request_approval`, `check_approval` | Get management sign-off |
+| **workflow** | `wait` | Advance time for approval processing |
+
+## Reward Signal
+
+- **Successful hire** (good job fit): **+10** to **+15** (base + CRM bonus)
+- **Bad hire** (poor match): **-5**
+- **Ghosted** (trust runs out): **-4**
+- **Per-step**: Small rewards/penalties for correct/incorrect actions
+
+## What Makes This Hard
+
+- **Long horizon**: 15-40+ tool calls per episode
+- **Information gathering**: Must ask the right screening questions to match driver to the right job
+- **Trust dynamics**: Each message costs trust — ask too many questions and the driver ghosts
+- **Job matching**: 6 jobs per episode (1-2 good, 1-2 traps with deal-breakers, 2-3 partial)
+- **Procedural correctness**: Must follow stage order, read replies before messaging, get approval before offering
 
 ## Quick Start
 
-The simplest way to use the Recruitopenenv environment is through the `RecruitopenenvEnv` class:
-
 ```python
-from recruitopenenv import RecruitopenenvAction, RecruitopenenvEnv
+from recruitopenenv import RecruitopenenvEnv, RecruitopenenvAction
 
-try:
-    # Create environment from Docker image
-    recruitopenenvenv = RecruitopenenvEnv.from_docker_image("recruitopenenv-env:latest")
+env = RecruitopenenvEnv(base_url="YOUR_SPACE_URL")
 
-    # Reset
-    result = recruitopenenvenv.reset()
-    print(f"Reset: {result.observation.echoed_message}")
+result = env.reset(seed=42)
+obs = result.observation
+print(f"Driver: {obs.driver_name}, Stage: {obs.stage}")
 
-    # Send multiple messages
-    messages = ["Hello, World!", "Testing echo", "Final message"]
+# Read CRM
+result = env.step(RecruitopenenvAction(tool="crm", action="read_candidate"))
+print(result.observation.jobs_summary)
 
-    for msg in messages:
-        result = recruitopenenvenv.step(RecruitopenenvAction(message=msg))
-        print(f"Sent: '{msg}'")
-        print(f"  → Echoed: '{result.observation.echoed_message}'")
-        print(f"  → Length: {result.observation.message_length}")
-        print(f"  → Reward: {result.reward}")
+# Greet driver
+result = env.step(RecruitopenenvAction(tool="messaging", action="send_message", topic="greeting"))
+print(f"Reward: {result.reward}")
 
-finally:
-    # Always clean up
-    recruitopenenvenv.close()
+# Read reply
+result = env.step(RecruitopenenvAction(tool="messaging", action="read_reply"))
+print(result.observation.discovered_info)
+
+env.close()
 ```
 
-That's it! The `RecruitopenenvEnv.from_docker_image()` method handles:
-- Starting the Docker container
-- Waiting for the server to be ready
-- Connecting to the environment
-- Container cleanup when you call `close()`
+## Training
 
-## Building the Docker Image
-
-Before using the environment, you need to build the Docker image:
+We train using GRPO/REINFORCE with the model choosing screening topics. See `train_grpo.py` for the full training script.
 
 ```bash
-# From project root
-docker build -t recruitopenenv-env:latest -f server/Dockerfile .
+python train_grpo.py --model Qwen/Qwen2.5-3B-Instruct
 ```
 
-## Deploying to Hugging Face Spaces
-
-You can easily deploy your OpenEnv environment to Hugging Face Spaces using the `openenv push` command:
+## Deploying
 
 ```bash
-# From the environment directory (where openenv.yaml is located)
+# From the recruitopenenv/ directory
 openenv push
-
-# Or specify options
-openenv push --namespace my-org --private
 ```
 
-The `openenv push` command will:
-1. Validate that the directory is an OpenEnv environment (checks for `openenv.yaml`)
-2. Prepare a custom build for Hugging Face Docker space (enables web interface)
-3. Upload to Hugging Face (ensuring you're logged in)
+## Action Format
 
-### Prerequisites
-
-- Authenticate with Hugging Face: The command will prompt for login if not already authenticated
-
-### Options
-
-- `--directory`, `-d`: Directory containing the OpenEnv environment (defaults to current directory)
-- `--repo-id`, `-r`: Repository ID in format 'username/repo-name' (defaults to 'username/env-name' from openenv.yaml)
-- `--base-image`, `-b`: Base Docker image to use (overrides Dockerfile FROM)
-- `--private`: Deploy the space as private (default: public)
-
-### Examples
-
-```bash
-# Push to your personal namespace (defaults to username/env-name from openenv.yaml)
-openenv push
-
-# Push to a specific repository
-openenv push --repo-id my-org/my-env
-
-# Push with a custom base image
-openenv push --base-image ghcr.io/meta-pytorch/openenv-base:latest
-
-# Push as a private space
-openenv push --private
-
-# Combine options
-openenv push --repo-id my-org/my-env --base-image custom-base:latest --private
+```json
+{"tool": "crm", "action": "read_candidate"}
+{"tool": "messaging", "action": "send_message", "topic": "experience"}
+{"tool": "messaging", "action": "read_reply"}
+{"tool": "crm", "action": "update_field", "field": "cdl_class", "value": "A"}
+{"tool": "crm", "action": "update_stage", "stage": "contacted"}
+{"tool": "approval", "action": "request_approval", "job_id": 2}
+{"tool": "workflow", "action": "wait"}
+{"tool": "approval", "action": "check_approval"}
+{"tool": "messaging", "action": "send_message", "topic": "offer", "job_id": 2}
+{"tool": "crm", "action": "update_stage", "stage": "hired"}
 ```
 
-After deployment, your space will be available at:
-`https://huggingface.co/spaces/<repo-id>`
+## Observation Fields
 
-The deployed space includes:
-- **Web Interface** at `/web` - Interactive UI for exploring the environment
-- **API Documentation** at `/docs` - Full OpenAPI/Swagger interface
-- **Health Check** at `/health` - Container health monitoring
-- **WebSocket** at `/ws` - Persistent session endpoint for low-latency interactions
+| Field | Description |
+|-------|-------------|
+| `driver_name` | Driver's name |
+| `crm_summary` | Full CRM record (empty until `read_candidate`) |
+| `jobs_summary` | 6 available job listings |
+| `discovered_info` | Info from screening conversations |
+| `stage` | Current pipeline stage |
+| `feedback` | API response from last action |
+| `pending_reply` | Whether driver has unread message |
 
-## Environment Details
+## Screening Topics
 
-### Action
-**RecruitopenenvAction**: Contains a single field
-- `message` (str) - The message to echo back
-
-### Observation
-**RecruitopenenvObservation**: Contains the echo response and metadata
-- `echoed_message` (str) - The message echoed back
-- `message_length` (int) - Length of the message
-- `reward` (float) - Reward based on message length (length × 0.1)
-- `done` (bool) - Always False for echo environment
-- `metadata` (dict) - Additional info like step count
-
-### Reward
-The reward is calculated as: `message_length × 0.1`
-- "Hi" → reward: 0.2
-- "Hello, World!" → reward: 1.3
-- Empty message → reward: 0.0
-
-## Advanced Usage
-
-### Connecting to an Existing Server
-
-If you already have a Recruitopenenv environment server running, you can connect directly:
-
-```python
-from recruitopenenv import RecruitopenenvEnv
-
-# Connect to existing server
-recruitopenenvenv = RecruitopenenvEnv(base_url="<ENV_HTTP_URL_HERE>")
-
-# Use as normal
-result = recruitopenenvenv.reset()
-result = recruitopenenvenv.step(RecruitopenenvAction(message="Hello!"))
-```
-
-Note: When connecting to an existing server, `recruitopenenvenv.close()` will NOT stop the server.
-
-### Using the Context Manager
-
-The client supports context manager usage for automatic connection management:
-
-```python
-from recruitopenenv import RecruitopenenvAction, RecruitopenenvEnv
-
-# Connect with context manager (auto-connects and closes)
-with RecruitopenenvEnv(base_url="http://localhost:8000") as env:
-    result = env.reset()
-    print(f"Reset: {result.observation.echoed_message}")
-    # Multiple steps with low latency
-    for msg in ["Hello", "World", "!"]:
-        result = env.step(RecruitopenenvAction(message=msg))
-        print(f"Echoed: {result.observation.echoed_message}")
-```
-
-The client uses WebSocket connections for:
-- **Lower latency**: No HTTP connection overhead per request
-- **Persistent session**: Server maintains your environment state
-- **Efficient for episodes**: Better for many sequential steps
-
-### Concurrent WebSocket Sessions
-
-The server supports multiple concurrent WebSocket connections. To enable this,
-modify `server/app.py` to use factory mode:
-
-```python
-# In server/app.py - use factory mode for concurrent sessions
-app = create_app(
-    RecruitopenenvEnvironment,  # Pass class, not instance
-    RecruitopenenvAction,
-    RecruitopenenvObservation,
-    max_concurrent_envs=4,  # Allow 4 concurrent sessions
-)
-```
-
-Then multiple clients can connect simultaneously:
-
-```python
-from recruitopenenv import RecruitopenenvAction, RecruitopenenvEnv
-from concurrent.futures import ThreadPoolExecutor
-
-def run_episode(client_id: int):
-    with RecruitopenenvEnv(base_url="http://localhost:8000") as env:
-        result = env.reset()
-        for i in range(10):
-            result = env.step(RecruitopenenvAction(message=f"Client {client_id}, step {i}"))
-        return client_id, result.observation.message_length
-
-# Run 4 episodes concurrently
-with ThreadPoolExecutor(max_workers=4) as executor:
-    results = list(executor.map(run_episode, range(4)))
-```
-
-## Development & Testing
-
-### Direct Environment Testing
-
-Test the environment logic directly without starting the HTTP server:
-
-```bash
-# From the server directory
-python3 server/recruitopenenv_environment.py
-```
-
-This verifies that:
-- Environment resets correctly
-- Step executes actions properly
-- State tracking works
-- Rewards are calculated correctly
-
-### Running Locally
-
-Run the server locally for development:
-
-```bash
-uvicorn server.app:app --reload
-```
-
-## Project Structure
-
-```
-recruitopenenv/
-├── .dockerignore         # Docker build exclusions
-├── __init__.py            # Module exports
-├── README.md              # This file
-├── openenv.yaml           # OpenEnv manifest
-├── pyproject.toml         # Project metadata and dependencies
-├── uv.lock                # Locked dependencies (generated)
-├── client.py              # RecruitopenenvEnv client
-├── models.py              # Action and Observation models
-└── server/
-    ├── __init__.py        # Server module exports
-    ├── recruitopenenv_environment.py  # Core environment logic
-    ├── app.py             # FastAPI application (HTTP + WebSocket endpoints)
-    └── Dockerfile         # Container image definition
-```
+`greeting`, `call`, `experience`, `home_time`, `pay`, `equipment`, `route`, `deal_breakers`, `availability`, `violations`, `medical_card`, `references`, `pitch`, `offer`, `negotiate_pay`, `negotiate_home_time`, `signing_bonus`, `address_concern`
