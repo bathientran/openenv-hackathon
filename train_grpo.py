@@ -157,15 +157,39 @@ def parse_action(text):
 # --- Multi-turn rollout ---
 
 ENV_URL = "http://localhost:8001"
-MAX_COMPLETION_TOKENS = 512
+MAX_COMPLETION_TOKENS = 768
+
+
+def _build_chat_transition(tokenizer, obs_text):
+    """Build chat-formatted transition tokens: end assistant turn, user obs, start assistant.
+
+    Result: <|im_end|>\n<|im_start|>user\n{obs}<|im_end|>\n<|im_start|>assistant\n
+    This ensures the model sees proper chat structure during the forward pass.
+    """
+    im_start = tokenizer.convert_tokens_to_ids("<|im_start|>")
+    im_end = tokenizer.convert_tokens_to_ids("<|im_end|>")
+
+    # Encode role tags and newlines
+    nl = tokenizer.encode("\n", add_special_tokens=False)
+    user_tag = tokenizer.encode("user", add_special_tokens=False)
+    asst_tag = tokenizer.encode("assistant", add_special_tokens=False)
+    obs_ids = tokenizer.encode(obs_text, add_special_tokens=False)[:10]
+
+    # <|im_end|>\n<|im_start|>user\n{obs}<|im_end|>\n<|im_start|>assistant\n
+    return (
+        [im_end] + nl +
+        [im_start] + user_tag + nl +
+        obs_ids +
+        [im_end] + nl +
+        [im_start] + asst_tag + nl
+    )
 
 
 def rollout_once(trainer, env, tokenizer, prompt_text, system_prompt, max_turns=15):
-    """Run one multi-turn episode, returning interleaved action+observation ids.
+    """Run one multi-turn episode with chat-formatted transitions.
 
-    completion_ids contains: [action1_tokens, obs1_tokens, action2_tokens, obs2_tokens, ...]
-    logprobs: real logprobs for action tokens, 0.0 for observation tokens
-    env_mask: 1 for action tokens (apply gradient), 0 for observation tokens (no gradient)
+    completion_ids: [action1, <|im_end|>user obs<|im_start|>assistant, action2, ...]
+    The chat template structure lets the forward pass assign proper logprobs.
     """
     seed = random.randint(0, 2**31 - 1)
     result = env.reset(seed=seed)
@@ -184,18 +208,16 @@ def rollout_once(trainer, env, tokenizer, prompt_text, system_prompt, max_turns=
     ]
 
     while not result.done and steps < max_turns:
-        # Check if we're already near the token budget
-        if len(completion_ids) > MAX_COMPLETION_TOKENS - 30:
+        # Check if we're near the token budget (need room for action + transition)
+        if len(completion_ids) > MAX_COMPLETION_TOKENS - 60:
             break
 
         current_prompt = tokenizer.apply_chat_template(
             messages, add_generation_prompt=True, tokenize=False
         )
 
-        # Use TRL's generate_rollout_completions (works with vLLM colocate & server)
         rollout_outputs = generate_rollout_completions(trainer, [current_prompt])[0]
 
-        # Only set prompt_ids on first turn to avoid O(n²) memory growth
         if steps == 0:
             prompt_ids = list(rollout_outputs["prompt_ids"])
 
@@ -219,15 +241,13 @@ def rollout_once(trainer, env, tokenizer, prompt_text, system_prompt, max_turns=
         steps += 1
 
         if not result.done:
-            # Tokenize compact observation and add as context (no gradients)
+            # Build chat-formatted transition so forward pass sees proper structure
             obs_text = format_observation_compact(obs)
-            obs_ids = tokenizer.encode(obs_text, add_special_tokens=False)
-            # Limit obs tokens to keep total under budget (~10 tokens max)
-            obs_ids = obs_ids[:10]
+            transition_ids = _build_chat_transition(tokenizer, obs_text)
 
-            completion_ids.extend(obs_ids)
-            logprobs.extend([0.0] * len(obs_ids))
-            env_mask.extend([0] * len(obs_ids))
+            completion_ids.extend(transition_ids)
+            logprobs.extend([0.0] * len(transition_ids))
+            env_mask.extend([0] * len(transition_ids))
 
             messages.append({"role": "user", "content": format_observation(obs)})
 
@@ -369,7 +389,7 @@ def main():
         vllm_mode=args.vllm_mode,
         num_train_epochs=args.epochs,
         num_generations=args.num_generations,
-        max_completion_length=MAX_COMPLETION_TOKENS,
+        max_completion_length=768,
         per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=4,
         gradient_checkpointing=True,
