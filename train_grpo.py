@@ -256,7 +256,7 @@ def main():
     parser.add_argument("--model", default="Qwen/Qwen2.5-3B-Instruct", help="Model to train")
     parser.add_argument("--env-url", default="http://localhost:8001", help="Environment server URL")
     parser.add_argument("--num-episodes", type=int, default=256, help="Number of training episodes (dataset size)")
-    parser.add_argument("--num-generations", type=int, default=16, help="GRPO generations per prompt")
+    parser.add_argument("--num-generations", type=int, default=8, help="GRPO generations per prompt")
     parser.add_argument("--batch-size", type=int, default=2, help="Per-device batch size")
     parser.add_argument("--epochs", type=int, default=3, help="Number of training epochs")
     parser.add_argument("--lr", type=float, default=5e-5, help="Learning rate")
