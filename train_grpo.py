@@ -159,7 +159,10 @@ def rollout_func(prompts, trainer):
         prompt_ids = tokenizer.encode(prompt_text, return_tensors="pt")[0]
         all_prompt_ids.append(prompt_ids)
 
-        result = env.reset()
+        # Same prompt = same seed = same driver, so GRPO compares
+        # different ACTION sequences on the SAME scenario
+        seed = hash(prompt_text) % (2**31)
+        result = env.reset(seed=seed)
         obs = result.observation
         total_reward = 0.0
 

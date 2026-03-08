@@ -947,7 +947,9 @@ class RecruitopenenvEnvironment(Environment):
             reward=reward,
         )
 
-    def reset(self) -> RecruitopenenvObservation:
+    def reset(self, seed: int = None) -> RecruitopenenvObservation:
+        if seed is not None:
+            random.seed(seed)
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self._driver = generate_driver()
         self._jobs = generate_jobs(self._driver)
