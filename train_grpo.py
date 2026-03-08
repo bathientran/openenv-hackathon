@@ -116,12 +116,12 @@ def parse_action(text):
                 tool=data["tool"],
                 action=data["action"],
                 topic=data.get("topic", ""),
-                job_id=data.get("job_id", -1),
-                stage=data.get("stage", ""),
-                field=data.get("field", ""),
-                value=data.get("value", ""),
+                job_id=int(data.get("job_id", -1)),
+                stage=str(data.get("stage", "")),
+                field=str(data.get("field", "")),
+                value=str(data.get("value", "")),
             )
-    except (json.JSONDecodeError, KeyError, IndexError):
+    except (json.JSONDecodeError, KeyError, IndexError, ValueError, TypeError):
         pass
 
     # Fallback: try to detect intent
