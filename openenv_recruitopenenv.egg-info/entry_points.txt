@@ -1,0 +1,2 @@
+[console_scripts]
+server = recruitopenenv.server.app:main
