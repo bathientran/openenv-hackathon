@@ -17,6 +17,7 @@ import torch
 
 from recruitopenenv import RecruitopenenvEnv, RecruitopenenvAction
 from trl import GRPOConfig, GRPOTrainer
+from trl.experimental.openenv import generate_rollout_completions
 
 # --- Prompt templates ---
 
@@ -142,119 +143,107 @@ def parse_action(text):
 ENV_URL = "http://localhost:8001"
 
 
+def rollout_once(trainer, env, tokenizer, prompt_text, system_prompt, max_turns=100):
+    """Run one multi-turn episode, returning concatenated ids/logprobs and reward."""
+    seed = hash(prompt_text) % (2**31)
+    result = env.reset(seed=seed)
+    obs = result.observation
+
+    prompt_ids = []
+    completion_ids = []
+    logprobs = []
+    total_reward = 0.0
+    steps = 0
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": format_observation(obs)},
+    ]
+
+    while not result.done and steps < max_turns:
+        current_prompt = tokenizer.apply_chat_template(
+            messages, add_generation_prompt=True, tokenize=False
+        )
+
+        # Use TRL's generate_rollout_completions (works with vLLM colocate & server)
+        rollout_outputs = generate_rollout_completions(trainer, [current_prompt])[0]
+        prompt_ids.extend(rollout_outputs["prompt_ids"])
+        completion_ids.extend(rollout_outputs["completion_ids"])
+        logprobs.extend(rollout_outputs["logprobs"])
+
+        response = rollout_outputs.get("text") or tokenizer.decode(
+            rollout_outputs["completion_ids"], skip_special_tokens=True
+        )
+        messages.append({"role": "assistant", "content": response})
+
+        action = parse_action(response)
+        result = env.step(action)
+        obs = result.observation
+        total_reward += result.reward
+        steps += 1
+
+        if not result.done:
+            messages.append({"role": "user", "content": format_observation(obs)})
+
+    return {
+        "prompt_ids": prompt_ids,
+        "completion_ids": completion_ids,
+        "logprobs": logprobs,
+        "env_reward": total_reward,
+        "steps": steps,
+        "final_stage": obs.stage,
+    }
+
+
 def rollout_func(prompts, trainer):
     """Multi-turn rollout: model controls every action in the episode."""
     tokenizer = trainer.processing_class
-    model = trainer.model
-    device = model.device
+    env = RecruitopenenvEnv(base_url=ENV_URL)
 
     all_prompt_ids = []
     all_completion_ids = []
     all_logprobs = []
-    all_rewards = []
-
-    env = RecruitopenenvEnv(base_url=ENV_URL)
+    all_env_rewards = []
 
     for prompt_text in prompts:
-        prompt_ids = tokenizer.encode(prompt_text, return_tensors="pt")[0]
-        all_prompt_ids.append(prompt_ids)
+        episode = rollout_once(trainer, env, tokenizer, prompt_text, SYSTEM_PROMPT)
 
-        # Same prompt = same seed = same driver, so GRPO compares
-        # different ACTION sequences on the SAME scenario
-        seed = hash(prompt_text) % (2**31)
-        result = env.reset(seed=seed)
-        obs = result.observation
-        total_reward = 0.0
-
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": format_observation(obs)},
-        ]
-
-        episode_completion_ids = []
-        episode_logprobs = []
-        steps = 0
-
-        while not result.done and steps < 100:
-            current_prompt = tokenizer.apply_chat_template(
-                messages, add_generation_prompt=True, tokenize=False
-            )
-            inputs = tokenizer(
-                current_prompt, return_tensors="pt",
-                truncation=True, max_length=4096
-            )
-            input_ids = inputs["input_ids"].to(device)
-
-            with torch.no_grad():
-                outputs = model.generate(
-                    input_ids,
-                    attention_mask=inputs["attention_mask"].to(device),
-                    max_new_tokens=96,
-                    temperature=1.2,
-                    do_sample=True,
-                    pad_token_id=tokenizer.eos_token_id,
-                    return_dict_in_generate=True,
-                    output_logits=True,
-                )
-
-            new_token_ids = outputs.sequences[0][input_ids.shape[1]:]
-
-            if hasattr(outputs, 'logits') and outputs.logits:
-                step_logprobs = []
-                for i, logits in enumerate(outputs.logits):
-                    if i < len(new_token_ids):
-                        log_probs = torch.log_softmax(logits[0], dim=-1)
-                        token_logprob = log_probs[new_token_ids[i]].item()
-                        step_logprobs.append(token_logprob)
-                episode_logprobs.extend(step_logprobs)
-            else:
-                episode_logprobs.extend([0.0] * len(new_token_ids))
-
-            episode_completion_ids.extend(new_token_ids.tolist())
-
-            response = tokenizer.decode(new_token_ids, skip_special_tokens=True)
-            messages.append({"role": "assistant", "content": response})
-
-            action = parse_action(response)
-            result = env.step(action)
-            obs = result.observation
-            total_reward += result.reward
-            steps += 1
-
-            if not result.done:
-                messages.append({"role": "user", "content": format_observation(obs)})
-
-        if episode_completion_ids:
-            all_completion_ids.append(torch.tensor(episode_completion_ids))
-            all_logprobs.append(episode_logprobs)
+        if episode["completion_ids"]:
+            all_prompt_ids.append(episode["prompt_ids"])
+            all_completion_ids.append(episode["completion_ids"])
+            all_logprobs.append(episode["logprobs"])
         else:
-            all_completion_ids.append(torch.tensor([tokenizer.eos_token_id]))
-            all_logprobs.append([0.0])
+            tok_ids = tokenizer.encode("wait", add_special_tokens=False)
+            all_prompt_ids.append(episode["prompt_ids"] or tok_ids)
+            all_completion_ids.append(tok_ids)
+            all_logprobs.append([0.0] * len(tok_ids))
 
-        all_rewards.append(total_reward)
-        print(f"  Episode {len(all_rewards)}: reward={total_reward:.1f}, steps={steps}, stage={obs.stage}")
+        all_env_rewards.append(episode["env_reward"])
+        print(f"  Episode {len(all_env_rewards)}: reward={episode['env_reward']:.1f}, "
+              f"steps={episode['steps']}, stage={episode['final_stage']}")
 
     env.close()
 
-    print(f"Rollout done: {len(all_rewards)} episodes, "
-          f"mean_reward={sum(all_rewards)/len(all_rewards):.2f}, "
-          f"std={torch.tensor(all_rewards).std().item():.2f}")
+    mean_r = sum(all_env_rewards) / len(all_env_rewards)
+    std_r = torch.tensor(all_env_rewards).std().item()
+    print(f"Rollout done: {len(all_env_rewards)} episodes, mean_reward={mean_r:.2f}, std={std_r:.2f}")
 
+    # Extra fields (env_reward) are forwarded to reward functions via **kwargs
     return {
         "prompt_ids": all_prompt_ids,
         "completion_ids": all_completion_ids,
         "logprobs": all_logprobs,
-        "rewards": all_rewards,
+        "env_reward": all_env_rewards,
     }
 
 
 # --- Reward function (fallback, rewards come from rollout) ---
 
-def reward_total(completions, rewards=None, **kwargs):
-    """Pass through rewards from rollout."""
-    if rewards is not None:
-        return rewards
-    # If rollout didn't provide rewards, return zeros
+def reward_total(completions, **kwargs):
+    """Extract environment rewards passed via rollout_func kwargs."""
+    env_rewards = kwargs.get("env_reward", [])
+    if env_rewards:
+        return [float(r) for r in env_rewards]
     return [0.0] * len(completions)
 
 
@@ -270,6 +259,8 @@ def main():
     parser.add_argument("--epochs", type=int, default=3, help="Number of training epochs")
     parser.add_argument("--lr", type=float, default=5e-5, help="Learning rate")
     parser.add_argument("--output-dir", default="./recruit-grpo-output", help="Output directory")
+    parser.add_argument("--vllm-mode", default="colocate", choices=["colocate", "server"],
+                        help="vLLM mode: colocate (1 GPU) or server (2+ GPUs)")
     parser.add_argument("--use-qlora", action="store_true", help="Use QLoRA (4-bit) for memory efficiency")
     parser.add_argument("--lora-r", type=int, default=16, help="LoRA rank")
     parser.add_argument("--lora-alpha", type=int, default=32, help="LoRA alpha")
@@ -319,10 +310,11 @@ def main():
 
     grpo_config = GRPOConfig(
         output_dir=args.output_dir,
-        use_vllm=False,
+        use_vllm=True,
+        vllm_mode=args.vllm_mode,
         num_train_epochs=args.epochs,
         num_generations=args.num_generations,
-        max_completion_length=512,
+        max_completion_length=2048,
         per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=4,
         gradient_checkpointing=True,
