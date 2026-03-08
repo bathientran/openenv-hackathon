@@ -6,41 +6,65 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 from recruitopenenv import RecruitopenenvEnv, RecruitopenenvAction
 
-SYSTEM_PROMPT = """You are a truck driver recruiter. You only know the driver's name. You must discover their qualifications and preferences through screening questions, then match them to the best job.
+SYSTEM_PROMPT = """You are a truck driver recruiter using a CRM system. You only know the driver's name. You must discover their qualifications through conversation, record info in the CRM, get approval, and hire them.
 
-Valid actions:
-- send_text: Send a text message to the candidate
-- call_candidate: Call the candidate on the phone
-- ask_experience: Ask about CDL class, years of experience, endorsements, location
-- ask_home_time: Ask about home time preference
-- ask_pay: Ask about pay expectations
-- ask_equipment: Ask about equipment preference
-- ask_route: Ask about route preference
-- ask_deal_breakers: Ask what they absolutely won't do
-- pitch_job <job_id>: Describe a job and get their reaction (0-5)
-- match_to_job <job_id>: Select a job for the candidate (0-5)
-- submit_application: Submit the application
-- reject_candidate: No good match exists
+You have 4 tools:
 
-Respond with ONLY the action in JSON format:
-{"action_type": "send_text"}
-{"action_type": "ask_experience"}
-{"action_type": "pitch_job", "job_id": 2}
-{"action_type": "match_to_job", "job_id": 0}"""
+## crm
+- read_candidate: Read the current CRM record
+- update_stage: Advance pipeline (contacted → interested → approval_pending → offer_sent → hired)
+- update_field: Record info (field + value)
+- add_note: Add a free-text note
+
+## messaging
+- send_message: Send a message (topic: greeting, call, experience, home_time, pay, equipment, route, deal_breakers, availability, violations, medical_card, references, pitch, offer, negotiate_pay, negotiate_home_time, signing_bonus, address_concern)
+- read_reply: Read the driver's response
+
+## approval
+- request_approval: Request approval for a job (needs job_id)
+- check_approval: Check approval status
+
+## workflow
+- wait: Advance time (needed for approval processing)
+
+## Rules
+- Must read CRM before messaging
+- Must read_reply before sending another message
+- Must request_approval and wait before sending offer
+- Must follow stage order: lead → contacted → interested → approval_pending → offer_sent → hired
+- Record important info in CRM with update_field
+
+Respond with ONLY JSON:
+{"tool": "crm", "action": "read_candidate"}
+{"tool": "messaging", "action": "send_message", "topic": "experience"}
+{"tool": "messaging", "action": "read_reply"}
+{"tool": "crm", "action": "update_field", "field": "cdl_class", "value": "A"}
+{"tool": "crm", "action": "update_stage", "stage": "contacted"}
+{"tool": "approval", "action": "request_approval", "job_id": 2}
+{"tool": "workflow", "action": "wait"}
+{"tool": "approval", "action": "check_approval"}
+{"tool": "messaging", "action": "send_message", "topic": "offer", "job_id": 2}
+{"tool": "crm", "action": "update_stage", "stage": "hired"}"""
 
 
 def format_observation(obs):
     parts = [f"Driver: {obs.driver_name}"]
+    if obs.crm_summary:
+        parts.append(f"CRM:\n{obs.crm_summary}")
     if obs.jobs_summary:
         parts.append(f"Jobs:\n{obs.jobs_summary}")
     if obs.discovered_info:
-        parts.append(f"Discovered info:\n{obs.discovered_info}")
-    parts.append(
-        f"Stage: {obs.stage} | Trust: {obs.trust_level} | "
-        f"Step: {obs.steps_taken}/{obs.max_steps} | Matched: {obs.matched_job_id}"
-    )
+        parts.append(f"Discovered:\n{obs.discovered_info}")
+    status = f"Stage: {obs.stage} | Trust: {obs.trust_level} | Step: {obs.steps_taken}/{obs.max_steps}"
+    if obs.pending_reply:
+        status += " | PENDING REPLY"
+    if obs.approval_status != "none":
+        status += f" | Approval: {obs.approval_status}"
+    if obs.negotiation_round > 0:
+        status += f" | Negotiation: {obs.negotiation_round}/5"
+    parts.append(status)
     if obs.feedback:
-        parts.append(f"Feedback: {obs.feedback}")
+        parts.append(f"Result: {obs.feedback}")
     return "\n".join(parts)
 
 
@@ -58,33 +82,30 @@ def parse_action(text):
         data = json.loads(text)
         if isinstance(data, list):
             data = data[0] if data else {}
-        if isinstance(data, dict) and "action_type" in data:
+        if isinstance(data, dict) and "tool" in data and "action" in data:
             return RecruitopenenvAction(
-                action_type=data["action_type"],
+                tool=data["tool"],
+                action=data["action"],
+                topic=data.get("topic", ""),
                 job_id=data.get("job_id", -1),
+                stage=data.get("stage", ""),
+                field=data.get("field", ""),
+                value=data.get("value", ""),
             )
     except (json.JSONDecodeError, KeyError, IndexError):
         pass
 
     text_lower = text.lower()
-    all_actions = [
-        "submit_application", "reject_candidate",
-        "ask_experience", "ask_home_time", "ask_pay",
-        "ask_equipment", "ask_route", "ask_deal_breakers",
-        "pitch_job", "match_to_job",
-        "send_text", "call_candidate",
-    ]
-    for act in all_actions:
-        if act in text_lower:
-            job_id = -1
-            if act in ("match_to_job", "pitch_job"):
-                for c in text:
-                    if c in "012345":
-                        job_id = int(c)
-                        break
-            return RecruitopenenvAction(action_type=act, job_id=job_id)
+    if "read_candidate" in text_lower:
+        return RecruitopenenvAction(tool="crm", action="read_candidate")
+    if "read_reply" in text_lower:
+        return RecruitopenenvAction(tool="messaging", action="read_reply")
+    if "check_approval" in text_lower:
+        return RecruitopenenvAction(tool="approval", action="check_approval")
+    if "wait" in text_lower:
+        return RecruitopenenvAction(tool="workflow", action="wait")
 
-    return RecruitopenenvAction(action_type="ask_experience")
+    return RecruitopenenvAction(tool="crm", action="read_candidate")
 
 
 def generate(model, tokenizer, messages, device):
@@ -141,7 +162,7 @@ def main():
                 steps = 0
                 messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-                while not result.done and steps < 15:
+                while not result.done and steps < 75:
                     obs_text = format_observation(obs)
                     messages.append({"role": "user", "content": obs_text})
 
@@ -154,18 +175,19 @@ def main():
                     ep_reward += result.reward
                     steps += 1
 
-                    print(f"  Step {steps}: {action.action_type}"
-                          f"{'(' + str(action.job_id) + ')' if action.job_id >= 0 else ''}"
+                    print(f"  Step {steps}: {action.tool}.{action.action}"
+                          f"{'(' + action.topic + ')' if action.topic else ''}"
+                          f"{'[job=' + str(action.job_id) + ']' if action.job_id >= 0 else ''}"
                           f" -> reward={result.reward:.1f}")
 
                 rewards.append(ep_reward)
                 total_steps += steps
-                placed = obs.stage == "submitted"
-                if placed:
+                hired = obs.stage == "hired"
+                if hired:
                     successes += 1
 
                 print(f"Episode {ep+1}: reward={ep_reward:.1f}, steps={steps}, "
-                      f"{'SUCCESS' if placed else 'FAIL'}")
+                      f"{'HIRED' if hired else 'FAIL (' + obs.stage + ')'}")
                 print()
 
         avg_reward = sum(rewards) / len(rewards)
@@ -179,7 +201,7 @@ def main():
         print(f"Avg reward:         {avg_reward:.2f}")
         print(f"Min reward:         {min(rewards):.2f}")
         print(f"Max reward:         {max(rewards):.2f}")
-        print(f"Placement rate:     {successes}/{args.num_episodes} ({100*successes/args.num_episodes:.1f}%)")
+        print(f"Hire rate:          {successes}/{args.num_episodes} ({100*successes/args.num_episodes:.1f}%)")
         print(f"Avg steps/episode:  {avg_steps:.1f}")
         print(f"{'='*40}")
 
