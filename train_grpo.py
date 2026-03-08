@@ -253,10 +253,10 @@ def main():
     parser = argparse.ArgumentParser(description="GRPO training for Driver Recruit Environment")
     parser.add_argument("--model", default="Qwen/Qwen2.5-3B-Instruct", help="Model to train")
     parser.add_argument("--env-url", default="http://localhost:8001", help="Environment server URL")
-    parser.add_argument("--num-episodes", type=int, default=256, help="Number of training episodes (dataset size)")
-    parser.add_argument("--num-generations", type=int, default=8, help="GRPO generations per prompt")
+    parser.add_argument("--num-episodes", type=int, default=16, help="Number of training episodes (dataset size)")
+    parser.add_argument("--num-generations", type=int, default=4, help="GRPO generations per prompt")
     parser.add_argument("--batch-size", type=int, default=2, help="Per-device batch size")
-    parser.add_argument("--epochs", type=int, default=3, help="Number of training epochs")
+    parser.add_argument("--epochs", type=int, default=1, help="Number of training epochs")
     parser.add_argument("--lr", type=float, default=5e-5, help="Learning rate")
     parser.add_argument("--output-dir", default="./recruit-grpo-output", help="Output directory")
     parser.add_argument("--vllm-mode", default="colocate", choices=["colocate", "server"],
@@ -316,7 +316,7 @@ def main():
         num_generations=args.num_generations,
         max_completion_length=2048,
         per_device_train_batch_size=args.batch_size,
-        gradient_accumulation_steps=4,
+        gradient_accumulation_steps=2,
         gradient_checkpointing=True,
         learning_rate=args.lr,
         logging_steps=1,
