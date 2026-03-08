@@ -55,11 +55,9 @@ def format_observation(obs):
         parts.append(f"Jobs:\n{obs.jobs_summary}")
     if obs.discovered_info:
         parts.append(f"Discovered:\n{obs.discovered_info}")
-    status = f"Stage: {obs.stage} | Trust: {obs.trust_level} | Step: {obs.steps_taken}"
+    status = f"Stage: {obs.stage}"
     if obs.pending_reply:
         status += " | PENDING REPLY"
-    if obs.negotiation_round > 0:
-        status += f" | Negotiation round: {obs.negotiation_round}"
     parts.append(status)
     if obs.feedback:
         parts.append(f"Result: {obs.feedback}")

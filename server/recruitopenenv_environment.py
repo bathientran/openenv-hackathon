@@ -933,31 +933,16 @@ class RecruitopenenvEnvironment(Environment):
         self._negotiation_concerns = []
 
     def _make_obs(self, reward=0.0, done=False, feedback=""):
-        best_score = max(
-            (score_job_fit(self._driver, j)[0] for j in self._jobs),
-            default=0,
-        )
         return RecruitopenenvObservation(
             driver_name=self._driver.get("name", ""),
             crm_summary=format_crm(self._crm) if self._has_read_crm else "",
             jobs_summary=format_jobs(self._jobs) if self._jobs else "",
             discovered_info="\n".join(self._discovered_info),
             stage=self._crm["stage"],
-            trust_level=trust_label(self._driver.get("trust", 0.5)),
-            trust=round(self._driver.get("trust", 0.5), 3),
-            personality=self._driver.get("personality", ""),
-            steps_taken=self._state.step_count,
-            max_steps=MAX_STEPS,
-            matched_job_id=self._matched_job_id,
-            questions_asked=sorted(self._asked),
-            negotiation_round=self._negotiation_round,
             feedback=feedback,
             pending_reply=self._pending_reply is not None,
-            approval_status=self._approval_status,
             done=done,
             reward=reward,
-            best_possible_score=best_score,
-            was_placeable=best_score >= 70,
         )
 
     def reset(self) -> RecruitopenenvObservation:

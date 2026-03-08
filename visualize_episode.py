@@ -87,7 +87,7 @@ def trust_gauge(trust_val):
     return f"{color}{'█' * filled}{DIM}{'░' * empty}{RESET} {color}{trust_val:.3f}{RESET}"
 
 
-def print_observation(obs, step_num, reward, action_taken=None, prev_trust=None):
+def print_observation(obs, step_num, reward, action_taken=None, **kwargs):
     """Print a full state snapshot after a turn."""
     hr("═")
 
@@ -103,49 +103,11 @@ def print_observation(obs, step_num, reward, action_taken=None, prev_trust=None)
     hr()
 
     # State bar
-    steps_left = obs.max_steps - obs.steps_taken
-    steps_color = GREEN if steps_left > 5 else (YELLOW if steps_left > 2 else RED)
-    personality_colors = {
-        "chatty": GREEN, "professional": CYAN,
-        "impatient": RED, "suspicious": MAGENTA,
-    }
-    p_color = personality_colors.get(obs.personality, WHITE)
     print(
         f"  Driver: {BOLD}{obs.driver_name}{RESET}  │  "
-        f"Personality: {p_color}{obs.personality}{RESET}  │  "
-        f"Stage: {stage_color(obs.stage)}  │  "
-        f"Steps: {steps_color}{obs.steps_taken}/{obs.max_steps}{RESET}"
+        f"Stage: {stage_color(obs.stage)}"
+        + (f"  │  {YELLOW}PENDING REPLY{RESET}" if obs.pending_reply else "")
     )
-
-    # Trust with delta
-    trust_line = f"  Trust:  {trust_gauge(obs.trust)}"
-    if prev_trust is not None:
-        delta = obs.trust - prev_trust
-        if delta > 0:
-            trust_line += f"  {GREEN}▲ +{delta:.3f}{RESET}"
-        elif delta < 0:
-            trust_line += f"  {RED}▼ {delta:.3f}{RESET}"
-        else:
-            trust_line += f"  {DIM}= no change{RESET}"
-    print(trust_line)
-
-    # Placeability
-    if obs.was_placeable:
-        print(f"  Placeable: {GREEN}YES{RESET} (best fit score: {obs.best_possible_score})")
-    else:
-        print(f"  Placeable: {RED}NO{RESET} (best fit score: {obs.best_possible_score}) — correct action is reject_candidate")
-
-    # Questions asked
-    if obs.questions_asked:
-        asked = ", ".join(q.replace("ask_", "") for q in obs.questions_asked)
-        all_q = ["experience", "home_time", "pay", "equipment", "route", "deal_breakers"]
-        remaining = [q for q in all_q if f"ask_{q}" not in obs.questions_asked]
-        remaining_str = f"  {DIM}remaining: {', '.join(remaining)}{RESET}" if remaining else ""
-        print(f"  Asked:  {CYAN}{asked}{RESET}{remaining_str}")
-
-    # Matched job
-    if obs.matched_job_id >= 0:
-        print(f"  Matched job: {BOLD}{obs.matched_job_id}{RESET}")
 
     # Feedback
     if obs.feedback:
@@ -169,29 +131,20 @@ def print_observation(obs, step_num, reward, action_taken=None, prev_trust=None)
     print()
 
 
-def print_episode_summary(episode_num, total_reward, steps, final_obs, was_placeable):
+def print_episode_summary(episode_num, total_reward, steps, final_obs):
     """Print end-of-episode summary."""
     section(f"Episode {episode_num} Summary")
 
     outcome = final_obs.stage
-    if outcome == "submitted":
-        print(f"  Outcome:  {BG_GREEN}{BOLD} PLACED {RESET}")
-    elif outcome == "rejected":
-        print(f"  Outcome:  {BG_RED}{BOLD} REJECTED / FAILED {RESET}")
+    if outcome in ("hired",):
+        print(f"  Outcome:  {BG_GREEN}{BOLD} HIRED {RESET}")
+    elif outcome in ("lost", "ghosted"):
+        print(f"  Outcome:  {BG_RED}{BOLD} {outcome.upper()} {RESET}")
     else:
         print(f"  Outcome:  {BG_YELLOW}{BOLD} {outcome.upper()} {RESET}")
 
     print(f"  Reward:   {reward_color(total_reward)}")
     print(f"  Steps:    {steps}")
-
-    if was_placeable and outcome != "submitted":
-        print(f"  Verdict:  {RED}{BOLD}REGRETTABLE FAILURE{RESET} — a good match existed")
-    elif not was_placeable and outcome != "submitted":
-        print(f"  Verdict:  {YELLOW}INTRINSIC FAILURE{RESET} — no good match was available")
-        if final_obs.stage == "rejected" and total_reward > 0:
-            print(f"            {GREEN}(correctly rejected!){RESET}")
-    elif was_placeable and outcome == "submitted":
-        print(f"  Verdict:  {GREEN}{BOLD}SUCCESS{RESET}")
 
     hr("═")
     print()
@@ -317,10 +270,7 @@ def format_obs_for_llm(obs):
         parts.append(f"Jobs:\n{obs.jobs_summary}")
     if obs.discovered_info:
         parts.append(f"Discovered info:\n{obs.discovered_info}")
-    parts.append(
-        f"Stage: {obs.stage} | Trust: {obs.trust_level} | "
-        f"Step: {obs.steps_taken}/{obs.max_steps} | Matched: {obs.matched_job_id}"
-    )
+    parts.append(f"Stage: {obs.stage}")
     if obs.feedback:
         parts.append(f"Feedback: {obs.feedback}")
     return "\n".join(parts)
@@ -372,11 +322,9 @@ def run_episode(env, episode_num, mode, llm_url=None, model=None):
 
     total_reward = 0.0
     steps = 0
-    prev_trust = obs.trust
     messages = [{"role": "system", "content": LLM_SYSTEM_PROMPT}] if mode == "llm" else []
-    was_placeable = obs.was_placeable
 
-    while not result.done and steps < 15:
+    while not result.done and steps < 100:
         if mode == "interactive":
             action = get_interactive_action()
         elif mode == "llm":
@@ -384,19 +332,18 @@ def run_episode(env, episode_num, mode, llm_url=None, model=None):
         else:
             action = get_random_action(obs)
 
-        prev_trust = obs.trust
         result = env.step(action)
         obs = result.observation
         total_reward += result.reward
         steps += 1
 
-        print_observation(obs, steps, result.reward, action_taken=action, prev_trust=prev_trust)
+        print_observation(obs, steps, result.reward, action_taken=action)
 
         if result.done:
             break
 
-    print_episode_summary(episode_num, total_reward, steps, obs, was_placeable)
-    return total_reward, steps, obs.stage == "submitted", was_placeable
+    print_episode_summary(episode_num, total_reward, steps, obs)
+    return total_reward, steps, obs.stage == "hired"
 
 
 def main():
@@ -416,17 +363,13 @@ def main():
 
     with RecruitopenenvEnv(base_url=args.env_url).sync() as env:
         for ep in range(1, args.episodes + 1):
-            reward, steps, placed, was_placeable = run_episode(
+            reward, steps, placed = run_episode(
                 env, ep, args.mode,
                 llm_url=args.llm_url, model=args.model,
             )
             all_rewards.append(reward)
             if placed:
                 all_successes += 1
-            elif was_placeable:
-                regrettable += 1
-            else:
-                intrinsic += 1
 
     # Aggregate summary for multi-episode runs
     if args.episodes > 1:
@@ -435,8 +378,6 @@ def main():
         print(f"  Episodes:            {args.episodes}")
         print(f"  Avg reward:          {reward_color(avg)}")
         print(f"  Placement rate:      {GREEN}{all_successes}/{args.episodes} ({100*all_successes/args.episodes:.0f}%){RESET}")
-        print(f"  Regrettable fails:   {RED}{regrettable}{RESET} (had good match, didn't place)")
-        print(f"  Intrinsic fails:     {YELLOW}{intrinsic}{RESET} (no good match existed)")
         hr("═")
 
 

@@ -21,7 +21,7 @@ def run_episode():
         result = env.step(action)
         obs = result.observation
         total_reward += result.reward
-        print(f"Step 1 (send_text): reward={result.reward}, trust={obs.trust_level}")
+        print(f"Step 1 (send_text): reward={result.reward}, trust={obs.stage}")
         print(f"  Feedback: {obs.feedback}")
         print()
 
@@ -60,7 +60,7 @@ def run_episode():
         # 7. Print discovered info so far
         print("--- DISCOVERED INFO ---")
         print(obs.discovered_info)
-        print(f"Trust: {obs.trust_level}, Stage: {obs.stage}")
+        print(f"Trust: {obs.stage}, Stage: {obs.stage}")
         print()
 
         # 8. Try pitching job 0 to see reaction
@@ -80,7 +80,7 @@ def run_episode():
         print()
 
         # 10. Submit if matched
-        if obs.matched_job_id >= 0:
+        if result.reward >= 0:
             result = env.step(RecruitopenenvAction(action_type="submit_application"))
             obs = result.observation
             total_reward += result.reward
@@ -93,7 +93,7 @@ def run_episode():
                 obs = result.observation
                 total_reward += result.reward
                 print(f"  match_to_job {job_id}: reward={result.reward} — {obs.feedback}")
-                if obs.matched_job_id >= 0:
+                if result.reward >= 0:
                     result = env.step(RecruitopenenvAction(action_type="submit_application"))
                     obs = result.observation
                     total_reward += result.reward

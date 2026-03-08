@@ -58,23 +58,10 @@ class RecruitopenenvObservation(Observation):
     """What the agent sees after each action."""
 
     driver_name: str = Field(default="", description="Driver's name")
-    crm_summary: str = Field(default="", description="Formatted CRM record")
-    jobs_summary: str = Field(default="", description="Description of available jobs")
+    crm_summary: str = Field(default="", description="CRM record (empty until read_candidate)")
+    jobs_summary: str = Field(default="", description="Available job listings")
     discovered_info: str = Field(default="", description="Info discovered through conversation")
 
     stage: str = Field(default="lead", description="Current pipeline stage")
-    trust_level: str = Field(default="medium", description="low, medium, or high")
-    trust: float = Field(default=0.5, description="Raw trust value (0.0-1.0)")
-    personality: str = Field(default="", description="Driver personality type")
-    steps_taken: int = Field(default=0, description="Steps taken so far")
-    max_steps: int = Field(default=100, description="Maximum steps allowed")
-    matched_job_id: int = Field(default=-1, description="Currently matched job, -1 if none")
-    questions_asked: list[str] = Field(default_factory=list, description="Screening questions asked so far")
-    negotiation_round: int = Field(default=0, description="Current negotiation round (0-5)")
-
-    feedback: str = Field(default="", description="Result of last action")
-    pending_reply: bool = Field(default=False, description="Whether an unread reply is available")
-    approval_status: str = Field(default="none", description="none, pending, approved, denied")
-
-    best_possible_score: int = Field(default=0, description="Best job fit score (0-100)")
-    was_placeable: bool = Field(default=True, description="Whether a good match (score >= 70) exists")
+    feedback: str = Field(default="", description="API response from last action")
+    pending_reply: bool = Field(default=False, description="Whether an unread message is waiting")
