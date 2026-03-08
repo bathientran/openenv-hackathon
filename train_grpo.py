@@ -173,7 +173,7 @@ def rollout_func(prompts, trainer):
                     input_ids,
                     attention_mask=inputs["attention_mask"].to(device),
                     max_new_tokens=64,
-                    temperature=0.7,
+                    temperature=1.2,
                     do_sample=True,
                     pad_token_id=tokenizer.eos_token_id,
                     return_dict_in_generate=True,
@@ -249,10 +249,10 @@ def main():
     parser.add_argument("--model", default="Qwen/Qwen2.5-3B-Instruct", help="Model to train")
     parser.add_argument("--env-url", default="http://localhost:8001", help="Environment server URL")
     parser.add_argument("--num-episodes", type=int, default=256, help="Number of training episodes (dataset size)")
-    parser.add_argument("--num-generations", type=int, default=4, help="GRPO generations per prompt")
+    parser.add_argument("--num-generations", type=int, default=16, help="GRPO generations per prompt")
     parser.add_argument("--batch-size", type=int, default=2, help="Per-device batch size")
     parser.add_argument("--epochs", type=int, default=3, help="Number of training epochs")
-    parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=5e-5, help="Learning rate")
     parser.add_argument("--output-dir", default="./recruit-grpo-output", help="Output directory")
     parser.add_argument("--use-qlora", action="store_true", help="Use QLoRA (4-bit) for memory efficiency")
     parser.add_argument("--lora-r", type=int, default=16, help="LoRA rank")
