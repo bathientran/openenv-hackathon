@@ -1,12 +1,9 @@
 """LLM agent baseline — test how well a base model performs without RL training."""
 
+import argparse
 import json
 import requests
 from recruitopenenv import RecruitopenenvEnv, RecruitopenenvAction
-
-LLM_URL = "http://localhost:8033/v1/chat/completions"
-MODEL = "qwen2.5-32b-instruct-q5_k_m-00001-of-00006.gguf"
-NUM_EPISODES = 20
 
 SYSTEM_PROMPT = """You are a truck driver recruiter using a CRM system. You only know the driver's name. You must discover their qualifications through conversation, record info in the CRM, get approval, and hire them.
 
@@ -80,9 +77,9 @@ def format_observation(obs):
     return "\n".join(parts)
 
 
-def ask_llm(messages):
-    resp = requests.post(LLM_URL, json={
-        "model": MODEL,
+def ask_llm(messages, llm_url, model):
+    resp = requests.post(llm_url, json={
+        "model": model,
         "messages": messages,
         "temperature": 0.1,
         "max_tokens": 150,
@@ -136,60 +133,70 @@ def parse_action(text):
     return RecruitopenenvAction(tool="crm", action="read_candidate")
 
 
-def run_baseline():
+def run_baseline(env_url, llm_url, model, num_episodes):
     rewards = []
     successes = 0
     total_steps = 0
 
-    with RecruitopenenvEnv(base_url="http://localhost:8000").sync() as env:
-        for ep in range(NUM_EPISODES):
-            result = env.reset()
+    env = RecruitopenenvEnv(base_url=env_url)
+
+    for ep in range(num_episodes):
+        result = env.reset()
+        obs = result.observation
+        ep_reward = 0.0
+        steps = 0
+
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+        while not result.done and steps < 100:
+            obs_text = format_observation(obs)
+            messages.append({"role": "user", "content": obs_text})
+
+            llm_response = ask_llm(messages, llm_url, model)
+            messages.append({"role": "assistant", "content": llm_response})
+
+            action = parse_action(llm_response)
+            result = env.step(action)
             obs = result.observation
-            ep_reward = 0.0
-            steps = 0
+            ep_reward += result.reward
+            steps += 1
 
-            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            print(f"  Step {steps}: {action.tool}.{action.action}"
+                  f"{'(' + action.topic + ')' if action.topic else ''}"
+                  f"{'[job=' + str(action.job_id) + ']' if action.job_id >= 0 else ''}"
+                  f" -> reward={result.reward:.1f}")
 
-            while not result.done and steps < 100:
-                obs_text = format_observation(obs)
-                messages.append({"role": "user", "content": obs_text})
+        rewards.append(ep_reward)
+        total_steps += steps
+        if obs.stage == "hired":
+            successes += 1
 
-                llm_response = ask_llm(messages)
-                messages.append({"role": "assistant", "content": llm_response})
+        print(f"Episode {ep+1}: total_reward={ep_reward:.1f}, steps={steps}, "
+              f"{'HIRED' if obs.stage == 'hired' else 'FAIL (' + obs.stage + ')'}")
+        print()
 
-                action = parse_action(llm_response)
-                result = env.step(action)
-                obs = result.observation
-                ep_reward += result.reward
-                steps += 1
-
-                print(f"  Step {steps}: {action.tool}.{action.action}"
-                      f"{'(' + action.topic + ')' if action.topic else ''}"
-                      f"{'[job=' + str(action.job_id) + ']' if action.job_id >= 0 else ''}"
-                      f" → reward={result.reward:.1f}, feedback: {obs.feedback[:80]}")
-
-            rewards.append(ep_reward)
-            total_steps += steps
-            if obs.stage == "hired":
-                successes += 1
-
-            print(f"Episode {ep+1}: total_reward={ep_reward:.1f}, steps={steps}, "
-                  f"{'HIRED' if obs.stage == 'hired' else 'FAIL (' + obs.stage + ')'}")
-            print()
+    env.close()
 
     avg_reward = sum(rewards) / len(rewards)
-    avg_steps = total_steps / NUM_EPISODES
+    avg_steps = total_steps / num_episodes
 
     print("\n========== LLM BASELINE (no RL) ==========")
-    print(f"Model:              {MODEL}")
-    print(f"Episodes:           {NUM_EPISODES}")
+    print(f"Model:              {model}")
+    print(f"Episodes:           {num_episodes}")
     print(f"Avg reward:         {avg_reward:.2f}")
     print(f"Min reward:         {min(rewards):.2f}")
     print(f"Max reward:         {max(rewards):.2f}")
-    print(f"Hire rate:          {successes}/{NUM_EPISODES} ({100*successes/NUM_EPISODES:.1f}%)")
+    print(f"Hire rate:          {successes}/{num_episodes} ({100*successes/num_episodes:.1f}%)")
     print(f"Avg steps/episode:  {avg_steps:.1f}")
     print("==========================================")
 
 
 if __name__ == "__main__":
-    run_baseline()
+    parser = argparse.ArgumentParser(description="LLM baseline for Driver Recruit Environment")
+    parser.add_argument("--env-url", default="http://localhost:8001", help="Environment server URL")
+    parser.add_argument("--llm-url", default="http://localhost:8033/v1/chat/completions", help="LLM API URL")
+    parser.add_argument("--model", default="Qwen/Qwen2.5-3B-Instruct", help="Model name")
+    parser.add_argument("--episodes", type=int, default=20, help="Number of episodes")
+    args = parser.parse_args()
+
+    run_baseline(args.env_url, args.llm_url, args.model, args.episodes)
