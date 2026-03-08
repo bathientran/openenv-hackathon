@@ -254,7 +254,9 @@ def main():
         logging_steps=1,
         save_steps=50,
         bf16=True,
-        report_to="none",
+        report_to="wandb",
+        run_name="recruit-grpo",
+        model_init_kwargs=model_kwargs if model_kwargs else None,
     )
 
     # Trainer
@@ -265,8 +267,6 @@ def main():
         train_dataset=dataset,
         args=grpo_config,
     )
-    if model_kwargs:
-        trainer_kwargs["model_kwargs"] = model_kwargs
     if peft_config is not None:
         trainer_kwargs["peft_config"] = peft_config
 

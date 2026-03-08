@@ -44,9 +44,12 @@ class RecruitopenenvObservation(Observation):
     # Pipeline state
     stage: str = Field(default="outreach", description="Current pipeline stage")
     trust_level: str = Field(default="medium", description="low, medium, or high")
+    trust: float = Field(default=0.5, description="Raw trust value (0.0-1.0)")
+    personality: str = Field(default="", description="Driver personality type")
     steps_taken: int = Field(default=0, description="Steps taken so far")
     max_steps: int = Field(default=15, description="Maximum steps allowed")
     matched_job_id: int = Field(default=-1, description="Currently matched job, -1 if none")
+    questions_asked: list[str] = Field(default_factory=list, description="Screening questions asked so far")
 
     # Feedback from last action
     feedback: str = Field(default="", description="Feedback from last action")

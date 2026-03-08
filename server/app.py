@@ -28,6 +28,11 @@ Usage:
     python -m server.app
 """
 
+import os
+
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+
 try:
     from openenv.core.env_server.http_server import create_app
 except Exception as e:  # pragma: no cover
@@ -48,6 +53,22 @@ app = create_app(
     env_name="recruitopenenv",
     max_concurrent_envs=1,  # increase this number to allow more concurrent WebSocket sessions
 )
+
+# CORS for demo page
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Serve the demo page
+_DEMO_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "demo")
+
+
+@app.get("/demo", include_in_schema=False)
+async def demo_page():
+    return FileResponse(os.path.join(_DEMO_DIR, "index.html"))
 
 
 def main(host: str = "0.0.0.0", port: int = 8000):

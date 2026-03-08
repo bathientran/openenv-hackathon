@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Recruit Env</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#09090b;--s1:#111113;--s2:#18181b;--s3:#27272a;
+  --b1:#27272a;--b2:#3f3f46;
+  --t1:#fafafa;--t2:#a1a1aa;--t3:#71717a;
+  --green:#22c55e;--red:#ef4444;--amber:#f59e0b;--blue:#3b82f6;--violet:#8b5cf6;--rose:#f43f5e;
+}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t1);-webkit-font-smoothing:antialiased}
+.mono{font-family:'IBM Plex Mono',monospace}
+
+/* ─── HERO ─── */
+.hero{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 24px;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:-200px;left:50%;transform:translateX(-50%);width:800px;height:800px;background:radial-gradient(circle,rgba(139,92,246,0.06) 0%,transparent 70%);pointer-events:none}
+.hero-eyebrow{font-size:13px;font-weight:500;color:var(--violet);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:20px}
+.hero h1{font-size:clamp(2rem,5vw,3.5rem);font-weight:700;letter-spacing:-0.03em;line-height:1.1;text-align:center;max-width:600px;margin-bottom:16px}
+.hero-sub{color:var(--t2);font-size:17px;line-height:1.6;text-align:center;max-width:520px;margin-bottom:48px}
+
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--b1);border:1px solid var(--b1);border-radius:12px;overflow:hidden;max-width:720px;width:100%;margin-bottom:48px}
+.card{background:var(--s1);padding:28px 24px}
+.card-num{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--t3);margin-bottom:10px}
+.card h3{font-size:14px;font-weight:600;margin-bottom:6px}
+.card p{font-size:13px;color:var(--t2);line-height:1.55}
+@media(max-width:640px){.cards{grid-template-columns:1fr}}
+
+.btn{display:inline-flex;align-items:center;gap:8px;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:all .15s}
+.btn-white{background:var(--t1);color:var(--bg)}
+.btn-white:hover{opacity:.9}
+.btn-ghost{background:transparent;border:1px solid var(--b2);color:var(--t2)}
+.btn-ghost:hover{border-color:var(--t3);color:var(--t1)}
+
+.env-input{background:var(--s2);border:1px solid var(--b1);color:var(--t2);padding:8px 12px;border-radius:6px;font-size:13px;font-family:'IBM Plex Mono',monospace;width:240px;margin-top:16px;text-align:center}
+.env-input:focus{outline:none;border-color:var(--b2)}
+
+/* ─── GAME ─── */
+.game{display:none;max-width:1200px;margin:0 auto;padding:16px 20px 40px}
+.game.on{display:block}
+
+/* Top bar */
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--b1);margin-bottom:16px;flex-wrap:wrap;gap:12px}
+.topbar-left{display:flex;align-items:center;gap:16px}
+.avatar{width:36px;height:36px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px;flex-shrink:0}
+.driver-meta h2{font-size:15px;font-weight:600;line-height:1}
+.pill{display:inline-block;font-size:11px;font-weight:500;padding:2px 8px;border-radius:4px;margin-top:4px}
+.pill-chatty{background:rgba(34,197,94,.12);color:var(--green)}
+.pill-professional{background:rgba(59,130,246,.12);color:var(--blue)}
+.pill-impatient{background:rgba(239,68,68,.12);color:var(--red)}
+.pill-suspicious{background:rgba(244,63,94,.12);color:var(--rose)}
+
+.topbar-stats{display:flex;gap:24px;align-items:center}
+.ts{text-align:right}
+.ts-label{font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.05em}
+.ts-val{font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600}
+
+.trust-wrap{width:140px}
+.trust-track{width:100%;height:4px;background:var(--s3);border-radius:2px;margin-top:4px;overflow:hidden}
+.trust-fill{height:100%;border-radius:2px;transition:width .4s ease}
+.trust-num{display:flex;justify-content:space-between;align-items:center;margin-top:3px}
+.trust-num span{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--t3)}
+.trust-num .delta{font-weight:600}
+.delta-up{color:var(--green)}
+.delta-down{color:var(--red)}
+
+/* Layout */
+.layout{display:grid;grid-template-columns:280px 1fr 280px;gap:16px;min-height:calc(100vh - 120px)}
+@media(max-width:1000px){.layout{grid-template-columns:1fr}}
+.right-col{display:flex;flex-direction:column;gap:12px}
+
+/* Sidebar */
+.sidebar{display:flex;flex-direction:column;gap:12px}
+.pane{background:var(--s1);border:1px solid var(--b1);border-radius:10px;overflow:hidden}
+.pane-head{font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;padding:12px 14px 8px}
+
+.job{padding:10px 14px;border-bottom:1px solid var(--b1);font-size:13px;cursor:default;transition:background .1s}
+.job:last-child{border-bottom:none}
+.job:hover{background:var(--s2)}
+.job-id{font-family:'IBM Plex Mono',monospace;color:var(--t3);font-size:11px;font-weight:500}
+.job-co{font-weight:500;margin-left:6px}
+.job-det{color:var(--t2);font-size:12px;margin-top:3px;line-height:1.5}
+.job-warn{color:var(--amber);font-size:11px;margin-top:2px}
+
+.info-item{padding:8px 14px;border-bottom:1px solid var(--b1);font-size:13px;line-height:1.5}
+.info-item:last-child{border-bottom:none}
+.info-cat{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;color:var(--violet);text-transform:uppercase;letter-spacing:.04em}
+.info-empty{padding:14px;color:var(--t3);font-size:13px;font-style:italic}
+
+.q-row{display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px}
+.q-chip{font-size:11px;padding:3px 10px;border-radius:4px;font-weight:500}
+.q-done{background:var(--s3);color:var(--t1)}
+.q-open{background:transparent;border:1px solid var(--b1);color:var(--t3)}
+
+/* Main area */
+.main{display:flex;flex-direction:column;gap:12px}
+
+/* Timeline */
+.timeline{flex:1;background:var(--s1);border:1px solid var(--b1);border-radius:10px;padding:16px;overflow-y:auto;max-height:calc(100vh - 240px);min-height:320px}
+.tl-entry{display:flex;gap:12px;margin-bottom:16px;animation:slideIn .25s ease}
+@keyframes slideIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.tl-dot-col{display:flex;flex-direction:column;align-items:center;padding-top:4px}
+.tl-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.tl-line{width:1px;flex:1;background:var(--b1);margin-top:4px}
+.tl-content{flex:1;min-width:0}
+.tl-head{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.tl-action{font-size:13px;font-weight:600}
+.tl-reward{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500}
+.tl-reward.pos{color:var(--green)}.tl-reward.neg{color:var(--red)}.tl-reward.zero{color:var(--t3)}
+.tl-body{font-size:13px;color:var(--t2);line-height:1.55;padding:8px 12px;background:var(--s2);border-radius:6px;border-left:2px solid var(--b1)}
+.tl-body.good{border-left-color:var(--green)}
+.tl-body.bad{border-left-color:var(--red)}
+.tl-step{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t3)}
+
+/* Actions */
+.actions{background:var(--s1);border:1px solid var(--b1);border-radius:10px;padding:12px 14px}
+.act-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.act-sep{width:1px;height:24px;background:var(--b1);margin:0 4px}
+.act{padding:7px 14px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;border:1px solid var(--b1);background:var(--s2);color:var(--t2);transition:all .12s;white-space:nowrap}
+.act:hover{background:var(--s3);color:var(--t1);border-color:var(--b2)}
+.act-go{border-color:rgba(34,197,94,.3);color:var(--green)}
+.act-go:hover{background:rgba(34,197,94,.1);border-color:var(--green)}
+.act-no{border-color:rgba(239,68,68,.2);color:var(--red)}
+.act-no:hover{background:rgba(239,68,68,.08);border-color:var(--red)}
+
+/* Modal */
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+.modal-bg.on{display:flex}
+.modal{background:var(--s1);border:1px solid var(--b1);border-radius:12px;padding:20px;width:380px;max-width:90vw}
+.modal h3{font-size:14px;font-weight:600;margin-bottom:14px}
+.modal-job{display:block;width:100%;text-align:left;background:var(--s2);border:1px solid var(--b1);color:var(--t1);padding:10px 12px;border-radius:6px;margin-bottom:6px;cursor:pointer;font-size:13px;transition:border-color .12s}
+.modal-job:hover{border-color:var(--violet)}
+.modal-cancel{display:block;width:100%;text-align:center;background:transparent;border:1px solid var(--b1);color:var(--t3);padding:8px;border-radius:6px;cursor:pointer;font-size:13px;margin-top:8px}
+.modal-cancel:hover{color:var(--t2)}
+
+/* End screen */
+.endscreen{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;align-items:center;justify-content:center;backdrop-filter:blur(8px)}
+.endscreen.on{display:flex}
+.end-card{background:var(--s1);border:1px solid var(--b1);border-radius:14px;padding:40px 36px;text-align:center;width:400px;max-width:90vw}
+.end-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px}
+.end-title{font-size:28px;font-weight:700;letter-spacing:-0.02em;margin-bottom:6px}
+.end-sub{font-size:13px;color:var(--t2);margin-bottom:28px;line-height:1.5}
+.end-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--b1);border:1px solid var(--b1);border-radius:8px;overflow:hidden;margin-bottom:24px}
+.end-stat{background:var(--s1);padding:14px 8px}
+.end-stat-val{font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600}
+.end-stat-lbl{font-size:11px;color:var(--t3);margin-top:2px}
+.end-verdict{font-size:13px;margin-bottom:24px;line-height:1.5}
+
+.placeable-tag{font-size:11px;font-weight:500;padding:2px 8px;border-radius:4px;font-family:'IBM Plex Mono',monospace}
+.pt-yes{background:rgba(34,197,94,.1);color:var(--green)}
+.pt-no{background:rgba(239,68,68,.1);color:var(--red)}
+</style>
+</head>
+<body>
+
+<div class="hero" id="hero">
+  <div class="hero-eyebrow">OpenEnv Hackathon</div>
+  <h1>Can an AI learn to recruit truck drivers?</h1>
+  <p class="hero-sub">An RL environment where agents discover hidden preferences through conversation, avoid trap jobs, and manage trust &mdash; all under time pressure.</p>
+
+  <div class="cards">
+    <div class="card">
+      <div class="card-num mono">01</div>
+      <h3>Hidden information</h3>
+      <p>Only the name is visible. CDL class, deal breakers, pay &mdash; everything must be discovered through screening.</p>
+    </div>
+    <div class="card">
+      <div class="card-num mono">02</div>
+      <h3>Trap jobs</h3>
+      <p>Jobs that look perfect on paper but violate a driver's deal breakers. Skip screening and you'll submit the wrong one.</p>
+    </div>
+    <div class="card">
+      <div class="card-num mono">03</div>
+      <h3>Trust budget</h3>
+      <p>Every action decays trust. Impatient drivers ghost in 6 steps. Suspicious drivers hide info until they trust you.</p>
+    </div>
+  </div>
+
+  <button class="btn btn-white" onclick="startGame()">Play the environment</button>
+  <input class="env-input" id="envUrl" value="http://localhost:8000" spellcheck="false">
+</div>
+
+<div class="game" id="game">
+  <div class="topbar">
+    <div class="topbar-left">
+      <div class="avatar" id="av">?</div>
+      <div class="driver-meta">
+        <h2 id="dName">---</h2>
+        <span class="pill" id="dPers"></span>
+      </div>
+    </div>
+    <div class="topbar-stats">
+      <div class="ts">
+        <div class="ts-label">Stage</div>
+        <div class="ts-val" id="uiStage">outreach</div>
+      </div>
+      <div class="ts">
+        <div class="ts-label">Step</div>
+        <div class="ts-val"><span id="uiStep">0</span><span style="color:var(--t3)"> / <span id="uiMax">15</span></span></div>
+      </div>
+      <div class="ts">
+        <div class="ts-label">Reward</div>
+        <div class="ts-val" id="uiRew">0.0</div>
+      </div>
+      <div class="trust-wrap">
+        <div class="ts-label">Trust</div>
+        <div class="trust-track"><div class="trust-fill" id="tFill"></div></div>
+        <div class="trust-num"><span class="mono" id="tVal">0.50</span><span class="mono delta" id="tDelta"></span></div>
+      </div>
+      <span class="placeable-tag" id="uiPlace"></span>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div class="sidebar">
+      <div class="pane" id="jobsPane">
+        <div class="pane-head">Jobs</div>
+        <div id="jobsList"></div>
+      </div>
+      <div class="pane">
+        <div class="pane-head">Questions</div>
+        <div class="q-row" id="qRow"></div>
+      </div>
+    </div>
+    <div class="main">
+      <div class="timeline" id="tl"></div>
+      <div class="actions">
+        <div class="act-row">
+          <button class="act" onclick="doAction('send_text')">Text</button>
+          <button class="act" onclick="doAction('call_candidate')">Call</button>
+          <div class="act-sep"></div>
+          <button class="act" onclick="doAction('ask_experience')">Experience</button>
+          <button class="act" onclick="doAction('ask_home_time')">Home time</button>
+          <button class="act" onclick="doAction('ask_pay')">Pay</button>
+          <button class="act" onclick="doAction('ask_equipment')">Equipment</button>
+          <button class="act" onclick="doAction('ask_route')">Route</button>
+          <button class="act" onclick="doAction('ask_deal_breakers')">Deal breakers</button>
+          <div class="act-sep"></div>
+          <button class="act" onclick="pickJob('pitch_job')">Pitch</button>
+          <button class="act" onclick="pickJob('match_to_job')">Match</button>
+          <div class="act-sep"></div>
+          <button class="act act-go" onclick="doAction('submit_application')">Submit</button>
+          <button class="act act-no" onclick="doAction('reject_candidate')">Reject</button>
+        </div>
+      </div>
+    </div>
+    <div class="right-col">
+      <div class="pane">
+        <div class="pane-head">Discovered</div>
+        <div id="infoList"><div class="info-empty">No info yet</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <h3 id="modalTitle">Select job</h3>
+    <div id="modalJobs"></div>
+    <button class="modal-cancel" onclick="closeModal()">Cancel</button>
+  </div>
+</div>
+
+<div class="endscreen" id="endscreen">
+  <div class="end-card">
+    <div class="end-label" id="endLabel"></div>
+    <div class="end-title" id="endTitle"></div>
+    <div class="end-sub" id="endSub"></div>
+    <div class="end-grid">
+      <div class="end-stat"><div class="end-stat-val" id="erRew"></div><div class="end-stat-lbl">Reward</div></div>
+      <div class="end-stat"><div class="end-stat-val" id="erStep"></div><div class="end-stat-lbl">Steps</div></div>
+      <div class="end-stat"><div class="end-stat-val" id="erTrust"></div><div class="end-stat-lbl">Trust</div></div>
+    </div>
+    <div class="end-verdict" id="endVerdict"></div>
+    <button class="btn btn-white" onclick="startGame()">Play again</button>
+  </div>
+</div>
+
+<script>
+let ENV='',WS=null,S={obs:null,rew:0,pt:0,done:false,wp:true,jobs:[]};
+let pendingResolve=null,pendingAct=null,pendingJid=null;
+
+function wsUrl(){
+  const base=document.getElementById('envUrl').value.replace(/\/$/,'');
+  return base.replace(/^http/,'ws')+'/ws';
+}
+
+function connectWS(){
+  return new Promise((resolve,reject)=>{
+    if(WS&&WS.readyState===WebSocket.OPEN){resolve();return}
+    if(WS)WS.close();
+    WS=new WebSocket(wsUrl());
+    WS.onopen=()=>resolve();
+    WS.onerror=()=>reject(new Error('WebSocket connection failed'));
+    WS.onmessage=(ev)=>{
+      const msg=JSON.parse(ev.data);
+      if(msg.type==='error'){
+        console.error('WS error:',msg.data);
+        if(pendingResolve){pendingResolve=null;}
+        return;
+      }
+      if(msg.type==='observation'&&pendingResolve){
+        const cb=pendingResolve;pendingResolve=null;
+        cb(msg.data);
+      }
+    };
+    WS.onclose=()=>{WS=null};
+  });
+}
+
+function wsSend(msg){
+  return new Promise((resolve)=>{
+    pendingResolve=resolve;
+    WS.send(JSON.stringify(msg));
+  });
+}
+
+async function startGame(){
+  document.getElementById('hero').style.display='none';
+  document.getElementById('game').classList.add('on');
+  document.getElementById('endscreen').classList.remove('on');
+  document.getElementById('tl').innerHTML='';
+  S={obs:null,rew:0,pt:0,done:false,wp:true,jobs:[]};
+  try{
+    await connectWS();
+    const d=await wsSend({type:'reset'});
+    handle(d,null);
+  }catch(e){
+    alert('Cannot reach server: '+e.message);
+    document.getElementById('hero').style.display='';
+    document.getElementById('game').classList.remove('on');
+  }
+}
+
+async function doAction(t,j){
+  if(S.done||!WS)return;
+  const d=await wsSend({type:'step',data:{action_type:t,job_id:j!==undefined?j:-1}});
+  handle(d,t,j);
+}
+
+function handle(d,act,jid){
+  const o=d.observation,rw=d.reward||0;
+  S.pt=S.obs?S.obs.trust:o.trust;
+  S.obs=o; S.rew+=rw; S.done=d.done; S.wp=o.was_placeable;
+  render(o,rw,act,jid);
+  if(d.done) setTimeout(()=>showEnd(o),500);
+}
+
+function render(o,rw,act,jid){
+  document.getElementById('dName').textContent=o.driver_name;
+  document.getElementById('av').textContent=o.driver_name?o.driver_name[0]:'?';
+  const pe=document.getElementById('dPers');
+  pe.textContent=o.personality; pe.className='pill pill-'+o.personality;
+
+  document.getElementById('uiStage').textContent=o.stage;
+  document.getElementById('uiStep').textContent=o.steps_taken;
+  document.getElementById('uiMax').textContent=o.max_steps;
+  const re=document.getElementById('uiRew');
+  re.textContent=(S.rew>=0?'+':'')+S.rew.toFixed(1);
+  re.style.color=S.rew>=0?'var(--green)':'var(--red)';
+
+  // trust
+  const tf=document.getElementById('tFill');
+  tf.style.width=(o.trust*100)+'%';
+  tf.style.background=o.trust>=.5?'var(--green)':o.trust>=.2?'var(--amber)':'var(--red)';
+  document.getElementById('tVal').textContent=o.trust.toFixed(3);
+  const dd=document.getElementById('tDelta'),dt=o.trust-S.pt;
+  if(act){
+    if(dt>0){dd.textContent='+'+dt.toFixed(3);dd.className='mono delta delta-up'}
+    else if(dt<0){dd.textContent=dt.toFixed(3);dd.className='mono delta delta-down'}
+    else{dd.textContent='';dd.className='mono delta'}
+  }else{dd.textContent='';dd.className='mono delta'}
+
+  const pl=document.getElementById('uiPlace');
+  if(o.was_placeable){pl.textContent='FIT '+o.best_possible_score;pl.className='placeable-tag pt-yes'}
+  else{pl.textContent='NO FIT '+o.best_possible_score;pl.className='placeable-tag pt-no'}
+
+  // jobs
+  if(o.jobs_summary){
+    const lines=o.jobs_summary.split('\n');
+    document.getElementById('jobsList').innerHTML=lines.map(l=>{
+      const fm=l.match(/\[(.+?)\]/);
+      const warn=fm?'<div class="job-warn">'+fm[1]+'</div>':'';
+      const parts=l.split(' \u2014 ');
+      const hd=parts[0]||'';
+      const det=parts[1]||'';
+      const im=hd.match(/^Job (\d+): (.+)/);
+      return '<div class="job"><span class="job-id">#'+((im&&im[1])||'?')+'</span><span class="job-co">'+((im&&im[2])||hd)+'</span><div class="job-det">'+det+'</div>'+warn+'</div>';
+    }).join('');
+    S.jobs=lines.map(l=>{const m=l.match(/^Job (\d+): (.+?) \u2014/);return m?{id:+m[1],label:'#'+m[1]+' '+m[2]}:null}).filter(Boolean);
+  }
+
+  // discovered
+  if(o.discovered_info){
+    const items=o.discovered_info.split('\n').filter(l=>l.trim());
+    document.getElementById('infoList').innerHTML=items.map(l=>{
+      const m=l.match(/^\[(.+?)\]\s*(.*)/);
+      if(m)return '<div class="info-item"><span class="info-cat">'+m[1]+'</span><br>'+m[2]+'</div>';
+      return '<div class="info-item">'+l+'</div>';
+    }).join('');
+  }
+
+  // questions
+  const allQ=['experience','home_time','pay','equipment','route','deal_breakers'];
+  const asked=o.questions_asked||[];
+  document.getElementById('qRow').innerHTML=allQ.map(q=>{
+    const done=asked.includes('ask_'+q);
+    return '<span class="q-chip '+(done?'q-done':'q-open')+'">'+q.replace(/_/g,' ')+'</span>';
+  }).join('');
+
+  // timeline
+  if(act){
+    const tl=document.getElementById('tl');
+    let label=act.replace(/_/g,' ');
+    if(jid!==undefined&&jid>=0) label+=' #'+jid;
+    const rwClass=rw>0?'pos':rw<0?'neg':'zero';
+    const rwStr=rw>=0?'+'+rw.toFixed(1):rw.toFixed(1);
+    const dotColor=rw>0?'var(--green)':rw<0?'var(--red)':'var(--b2)';
+    const bodyClass=rw>0?'good':rw<0?'bad':'';
+    let html='<div class="tl-entry"><div class="tl-dot-col"><div class="tl-dot" style="background:'+dotColor+'"></div><div class="tl-line"></div></div><div class="tl-content"><div class="tl-head"><span class="tl-step mono">'+o.steps_taken+'</span><span class="tl-action">'+label+'</span><span class="tl-reward '+rwClass+'">'+rwStr+'</span></div>';
+    if(o.feedback) html+='<div class="tl-body '+bodyClass+'">'+o.feedback+'</div>';
+    html+='</div></div>';
+    tl.innerHTML+=html;
+    tl.scrollTop=tl.scrollHeight;
+  } else if(o.feedback){
+    const tl=document.getElementById('tl');
+    tl.innerHTML+='<div class="tl-entry"><div class="tl-dot-col"><div class="tl-dot" style="background:var(--violet)"></div><div class="tl-line"></div></div><div class="tl-content"><div class="tl-head"><span class="tl-step mono">0</span><span class="tl-action">New episode</span></div><div class="tl-body">'+o.feedback+'</div></div></div>';
+  }
+}
+
+let pendAct='';
+function pickJob(t){
+  pendAct=t;
+  document.getElementById('modalTitle').textContent=t==='pitch_job'?'Pitch which job?':'Match to which job?';
+  document.getElementById('modalJobs').innerHTML=S.jobs.map(j=>'<button class="modal-job" onclick="selJob('+j.id+')">'+j.label+'</button>').join('');
+  document.getElementById('modalBg').classList.add('on');
+}
+function selJob(id){closeModal();doAction(pendAct,id)}
+function closeModal(){document.getElementById('modalBg').classList.remove('on')}
+
+function showEnd(o){
+  const e=document.getElementById('endscreen');e.classList.add('on');
+  const win=o.stage==='submitted';
+  document.getElementById('endLabel').textContent=win?'PLACEMENT COMPLETE':'EPISODE ENDED';
+  document.getElementById('endLabel').style.color=win?'var(--green)':'var(--red)';
+  document.getElementById('endTitle').textContent=win?'Driver placed':'Failed';
+  document.getElementById('endTitle').style.color=win?'var(--green)':'var(--t1)';
+  document.getElementById('endSub').textContent=o.feedback||'';
+
+  const rv=document.getElementById('erRew');
+  rv.textContent=(S.rew>=0?'+':'')+S.rew.toFixed(1);
+  rv.style.color=S.rew>=0?'var(--green)':'var(--red)';
+  document.getElementById('erStep').textContent=o.steps_taken;
+  document.getElementById('erTrust').textContent=o.trust.toFixed(2);
+
+  const v=document.getElementById('endVerdict');
+  if(S.wp&&!win) v.innerHTML='<span style="color:var(--red);font-weight:600">Regrettable failure</span><br><span style="color:var(--t3)">A good match existed (score '+o.best_possible_score+')</span>';
+  else if(!S.wp&&!win) v.innerHTML='<span style="color:var(--amber);font-weight:600">Intrinsic failure</span><br><span style="color:var(--t3)">No viable match (best score '+o.best_possible_score+')</span>';
+  else v.innerHTML='<span style="color:var(--green);font-weight:600">Successful placement</span>';
+}
+</script>
+</body>
+</html>

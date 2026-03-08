@@ -672,9 +672,12 @@ class RecruitopenenvEnvironment(Environment):
             discovered_info="\n".join(self._discovered_info),
             stage=self._stage,
             trust_level=trust_label(self._driver.get("trust", 0.5)),
+            trust=round(self._driver.get("trust", 0.5), 3),
+            personality=self._driver.get("personality", ""),
             steps_taken=self._state.step_count,
             max_steps=MAX_STEPS,
             matched_job_id=self._matched_job_id,
+            questions_asked=sorted(self._asked),
             feedback=feedback,
             done=done,
             reward=reward,
@@ -702,6 +705,9 @@ class RecruitopenenvEnvironment(Environment):
         )
 
     def step(self, action: RecruitopenenvAction) -> RecruitopenenvObservation:
+        if not self._driver:
+            return self._make_obs(reward=0.0, done=True, feedback="No episode in progress. Call reset first.")
+
         self._state.step_count += 1
         reward = 0.0
         done = False
