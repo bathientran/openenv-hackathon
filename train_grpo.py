@@ -232,23 +232,29 @@ def rollout_func(prompts, trainer):
             all_logprobs.append([0.0])
 
         all_rewards.append(total_reward)
+        print(f"  Episode {len(all_rewards)}: reward={total_reward:.1f}, steps={steps}, stage={obs.stage}")
 
     env.close()
+
+    print(f"Rollout done: {len(all_rewards)} episodes, "
+          f"mean_reward={sum(all_rewards)/len(all_rewards):.2f}, "
+          f"std={torch.tensor(all_rewards).std().item():.2f}")
 
     return {
         "prompt_ids": all_prompt_ids,
         "completion_ids": all_completion_ids,
         "logprobs": all_logprobs,
-        "env_reward": all_rewards,
+        "rewards": all_rewards,
     }
 
 
-# --- Reward function (receives env_reward from rollout) ---
+# --- Reward function (fallback, rewards come from rollout) ---
 
-def reward_total(completions, env_reward=None, **kwargs):
-    """Use the total episode reward computed during rollout."""
-    if env_reward is not None:
-        return env_reward
+def reward_total(completions, rewards=None, **kwargs):
+    """Pass through rewards from rollout."""
+    if rewards is not None:
+        return rewards
+    # If rollout didn't provide rewards, return zeros
     return [0.0] * len(completions)
 
 
