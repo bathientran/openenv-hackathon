@@ -93,16 +93,18 @@ def format_observation(obs):
 
 
 def format_observation_compact(obs):
-    """Compact observation for embedding in completion_ids (minimal tokens)."""
-    parts = []
+    """Ultra-compact observation for embedding in completion_ids (~5-10 tokens)."""
+    # Just stage + short status keyword, e.g. "contacted|OK" or "lead|REPLY"
+    fb = ""
     if obs.feedback:
-        # Truncate long feedback to save tokens
-        fb = obs.feedback[:200]
-        parts.append(fb)
-    parts.append(f"stage:{obs.stage}")
+        # Extract just first word or short status
+        fb = obs.feedback.split(".")[0].split(",")[0][:30]
+    status = obs.stage
     if obs.pending_reply:
-        parts.append("PENDING_REPLY")
-    return "|".join(parts)
+        status += "|REPLY"
+    if fb:
+        status += "|" + fb
+    return status
 
 
 def parse_action(text):
@@ -158,7 +160,7 @@ ENV_URL = "http://localhost:8001"
 MAX_COMPLETION_TOKENS = 512
 
 
-def rollout_once(trainer, env, tokenizer, prompt_text, system_prompt, max_turns=20):
+def rollout_once(trainer, env, tokenizer, prompt_text, system_prompt, max_turns=15):
     """Run one multi-turn episode, returning interleaved action+observation ids.
 
     completion_ids contains: [action1_tokens, obs1_tokens, action2_tokens, obs2_tokens, ...]
@@ -220,9 +222,8 @@ def rollout_once(trainer, env, tokenizer, prompt_text, system_prompt, max_turns=
             # Tokenize compact observation and add as context (no gradients)
             obs_text = format_observation_compact(obs)
             obs_ids = tokenizer.encode(obs_text, add_special_tokens=False)
-            # Limit obs tokens to keep total under budget
-            max_obs = min(len(obs_ids), 40)
-            obs_ids = obs_ids[:max_obs]
+            # Limit obs tokens to keep total under budget (~10 tokens max)
+            obs_ids = obs_ids[:10]
 
             completion_ids.extend(obs_ids)
             logprobs.extend([0.0] * len(obs_ids))
