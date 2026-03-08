@@ -144,7 +144,11 @@ def rollout_once(trainer, env, tokenizer, max_turns=15):
         rollout_outputs = generate_rollout_completions(trainer, [prompt_text])[0]
         all_prompt_ids.extend(rollout_outputs["prompt_ids"])
         all_completion_ids.extend(rollout_outputs["completion_ids"])
-        all_logprobs.extend(rollout_outputs["logprobs"])
+        # TRL expects logprobs as list of subscriptable items (tuples), not plain floats
+        raw_lps = rollout_outputs["logprobs"]
+        all_logprobs.extend(
+            [lp] if isinstance(lp, (int, float)) else lp for lp in raw_lps
+        )
 
         completion_text = rollout_outputs.get("text") or tokenizer.decode(
             rollout_outputs["completion_ids"], skip_special_tokens=True
