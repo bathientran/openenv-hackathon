@@ -10,6 +10,7 @@ Usage:
 
 import argparse
 import json
+import random
 
 from datasets import Dataset
 from transformers import AutoTokenizer, BitsAndBytesConfig
@@ -143,9 +144,9 @@ def parse_action(text):
 ENV_URL = "http://localhost:8001"
 
 
-def rollout_once(trainer, env, tokenizer, prompt_text, system_prompt, max_turns=100):
+def rollout_once(trainer, env, tokenizer, prompt_text, system_prompt, max_turns=30):
     """Run one multi-turn episode, returning concatenated ids/logprobs and reward."""
-    seed = hash(prompt_text) % (2**31)
+    seed = random.randint(0, 2**31 - 1)
     result = env.reset(seed=seed)
     obs = result.observation
 
@@ -167,7 +168,11 @@ def rollout_once(trainer, env, tokenizer, prompt_text, system_prompt, max_turns=
 
         # Use TRL's generate_rollout_completions (works with vLLM colocate & server)
         rollout_outputs = generate_rollout_completions(trainer, [current_prompt])[0]
-        prompt_ids.extend(rollout_outputs["prompt_ids"])
+
+        # Only set prompt_ids on first turn to avoid O(n²) memory growth
+        if steps == 0:
+            prompt_ids = list(rollout_outputs["prompt_ids"])
+
         completion_ids.extend(rollout_outputs["completion_ids"])
         logprobs.extend(rollout_outputs["logprobs"])
 
@@ -320,6 +325,7 @@ def main():
         gradient_accumulation_steps=2,
         gradient_checkpointing=True,
         learning_rate=args.lr,
+        temperature=0.7,
         logging_steps=1,
         save_steps=50,
         bf16=True,
