@@ -67,7 +67,7 @@ class RecruitopenenvObservation(Observation):
     trust: float = Field(default=0.5, description="Raw trust value (0.0-1.0)")
     personality: str = Field(default="", description="Driver personality type")
     steps_taken: int = Field(default=0, description="Steps taken so far")
-    max_steps: int = Field(default=75, description="Maximum steps allowed")
+    max_steps: int = Field(default=100, description="Maximum steps allowed")
     matched_job_id: int = Field(default=-1, description="Currently matched job, -1 if none")
     questions_asked: list[str] = Field(default_factory=list, description="Screening questions asked so far")
     negotiation_round: int = Field(default=0, description="Current negotiation round (0-5)")

@@ -55,13 +55,11 @@ def format_observation(obs):
         parts.append(f"Jobs:\n{obs.jobs_summary}")
     if obs.discovered_info:
         parts.append(f"Discovered:\n{obs.discovered_info}")
-    status = f"Stage: {obs.stage} | Trust: {obs.trust_level} | Step: {obs.steps_taken}/{obs.max_steps}"
+    status = f"Stage: {obs.stage} | Trust: {obs.trust_level} | Step: {obs.steps_taken}"
     if obs.pending_reply:
         status += " | PENDING REPLY"
-    if obs.approval_status != "none":
-        status += f" | Approval: {obs.approval_status}"
     if obs.negotiation_round > 0:
-        status += f" | Negotiation: {obs.negotiation_round}/5"
+        status += f" | Negotiation round: {obs.negotiation_round}"
     parts.append(status)
     if obs.feedback:
         parts.append(f"Result: {obs.feedback}")
@@ -162,7 +160,7 @@ def main():
                 steps = 0
                 messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-                while not result.done and steps < 75:
+                while not result.done and steps < 100:
                     obs_text = format_observation(obs)
                     messages.append({"role": "user", "content": obs_text})
 

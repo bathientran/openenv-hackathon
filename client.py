@@ -43,7 +43,7 @@ class RecruitopenenvEnv(
             trust=obs_data.get("trust", 0.5),
             personality=obs_data.get("personality", ""),
             steps_taken=obs_data.get("steps_taken", 0),
-            max_steps=obs_data.get("max_steps", 75),
+            max_steps=obs_data.get("max_steps", 100),
             matched_job_id=obs_data.get("matched_job_id", -1),
             questions_asked=obs_data.get("questions_asked", []),
             negotiation_round=obs_data.get("negotiation_round", 0),

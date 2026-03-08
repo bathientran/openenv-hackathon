@@ -9,6 +9,7 @@ Pipeline: lead → contacted → interested → approval_pending → offer_sent 
 Terminal failures: lost, ghosted
 """
 
+import json
 import random
 from uuid import uuid4
 
@@ -64,7 +65,7 @@ VIOLATION_LEVELS = ["clean", "minor", "major"]
 MEDICAL_CARD_STATUS = ["valid", "expiring_soon", "expired"]
 REFERENCE_QUALITY = ["strong", "mixed", "none"]
 
-MAX_STEPS = 75
+MAX_STEPS = 100
 
 VALID_TOOL_ACTIONS = {
     "crm": {"read_candidate", "update_stage", "update_field", "add_note"},
@@ -81,13 +82,8 @@ VALID_TOPICS = {
     "negotiate_pay", "negotiate_home_time", "signing_bonus", "address_concern",
 }
 
-VALID_STAGE_TRANSITIONS = {
-    "lead": {"contacted"},
-    "contacted": {"interested", "lost"},
-    "interested": {"approval_pending", "lost"},
-    "approval_pending": {"offer_sent", "lost"},
-    "offer_sent": {"hired", "lost"},
-}
+STAGE_ORDER = ["lead", "contacted", "interested", "approval_pending", "offer_sent", "hired"]
+ALL_STAGES = set(STAGE_ORDER) | {"lost", "ghosted"}
 
 SCREENING_TOPICS = {
     "experience", "home_time", "pay", "equipment", "route", "deal_breakers",
@@ -885,6 +881,11 @@ def _respond_negotiation(driver, action, job, concerns):
 # --- CRM formatting ---
 
 
+def _api(code, **kwargs):
+    """Format a JSON API response with status code."""
+    return json.dumps({"code": code, **kwargs})
+
+
 def format_crm(crm):
     """Format CRM record into readable string."""
     lines = [f"Name: {crm['name']}", f"Stage: {crm['stage']}"]
@@ -978,35 +979,31 @@ class RecruitopenenvEnvironment(Environment):
         self._negotiation_concerns = []
 
         return self._make_obs(
-            feedback=(
-                f"New lead assigned: {self._driver['name']}. "
-                f"Start by reading the CRM record, then reach out. "
-                f"You have 6 open positions to fill."
-            )
+            feedback=_api(200, driver=self._driver["name"], jobs=len(self._jobs))
         )
 
     def step(self, action: RecruitopenenvAction) -> RecruitopenenvObservation:
         if not self._driver:
-            return self._make_obs(reward=0.0, done=True, feedback="No episode in progress. Call reset first.")
+            return self._make_obs(reward=0.0, done=True, feedback=_api(400, error="no_episode"))
 
         tool = action.tool
         act = action.action
 
         # Validate tool+action
         if tool not in VALID_TOOL_ACTIONS:
-            return self._make_obs(reward=-1.0, feedback=f"Unknown tool: {tool}. Use: crm, messaging, approval, workflow")
+            return self._make_obs(reward=-1.0, feedback=_api(400, error="unknown_tool", tool=tool))
         if act not in VALID_TOOL_ACTIONS[tool]:
-            return self._make_obs(reward=-1.0, feedback=f"Unknown action {tool}.{act}. Valid: {', '.join(sorted(VALID_TOOL_ACTIONS[tool]))}")
+            return self._make_obs(reward=-1.0, feedback=_api(400, error="unknown_action", tool=tool, action=act))
 
         # Check terminal
         if self._crm["stage"] in ("hired", "lost", "ghosted"):
-            return self._make_obs(reward=0.0, done=True, feedback="Episode already ended.")
+            return self._make_obs(reward=0.0, done=True, feedback=_api(400, error="episode_ended"))
 
         self._state.step_count += 1
 
         if self._state.step_count >= MAX_STEPS:
             self._crm["stage"] = "ghosted"
-            return self._make_obs(reward=-3.0, done=True, feedback="Too many steps. Candidate lost interest and ghosted.")
+            return self._make_obs(reward=-3.0, done=True, feedback=_api(200, result="ghosted", reason="timeout"))
 
         # Route to handler
         if tool == "crm":
@@ -1018,7 +1015,7 @@ class RecruitopenenvEnvironment(Environment):
         elif tool == "workflow":
             return self._handle_workflow(act, action)
 
-        return self._make_obs(reward=-1.0, feedback="Internal error.")
+        return self._make_obs(reward=-1.0, feedback=_api(500, error="internal_error"))
 
     # --- CRM tool ---
 
@@ -1026,57 +1023,74 @@ class RecruitopenenvEnvironment(Environment):
         if act == "read_candidate":
             self._has_read_crm = True
             self._crm_read_count += 1
-            # First read is free, subsequent reads cost -0.1 (stop spamming)
             reward = 0.0 if self._crm_read_count <= 1 else -0.1
-            return self._make_obs(reward=reward, feedback=format_crm(self._crm))
+            return self._make_obs(reward=reward, feedback=_api(200, data=self._crm))
 
         elif act == "update_stage":
             new_stage = action.stage
             current = self._crm["stage"]
-            valid_next = VALID_STAGE_TRANSITIONS.get(current, set())
-            if new_stage not in valid_next:
-                return self._make_obs(
-                    reward=-1.0,
-                    feedback=f"Invalid stage transition: {current} → {new_stage}. Valid: {', '.join(sorted(valid_next)) if valid_next else 'none'}"
-                )
+
+            if new_stage not in ALL_STAGES:
+                return self._make_obs(reward=-1.0, feedback=_api(400, error="unknown_stage", stage=new_stage))
+
+            # Compute penalty for non-ideal transitions
+            penalty = 0.0
+            if new_stage not in ("lost", "ghosted"):
+                cur_idx = STAGE_ORDER.index(current) if current in STAGE_ORDER else -1
+                new_idx = STAGE_ORDER.index(new_stage) if new_stage in STAGE_ORDER else -1
+                if new_idx >= 0 and cur_idx >= 0:
+                    diff = new_idx - cur_idx
+                    if diff == 0:
+                        # Same stage — wasted action
+                        penalty = -0.1
+                    elif diff == 1:
+                        # Correct next stage — no penalty
+                        penalty = 0.0
+                    elif diff > 1:
+                        # Skipping stages forward — penalize per skip
+                        penalty = -0.5 * (diff - 1)
+                    else:
+                        # Going backwards — heavier penalty
+                        penalty = -1.0 * abs(diff)
+
             self._crm["stage"] = new_stage
-            # Terminal stages
             if new_stage == "hired":
-                return self._finalize_hire()
+                return self._finalize_hire(penalty)
             if new_stage == "lost":
-                return self._finalize_lost()
-            return self._make_obs(reward=0.0, feedback=f"Stage updated: {current} → {new_stage}")
+                return self._finalize_lost(penalty)
+            return self._make_obs(reward=0.0 + penalty, feedback=_api(200, stage=new_stage))
 
         elif act == "update_field":
             field = action.field
             if field not in VALID_CRM_FIELDS:
-                return self._make_obs(
-                    reward=-0.5,
-                    feedback=f"Unknown CRM field: {field}. Valid: {', '.join(sorted(VALID_CRM_FIELDS))}"
-                )
+                return self._make_obs(reward=-0.5, feedback=_api(400, error="unknown_field", field=field))
             self._crm["fields"][field] = action.value
-            return self._make_obs(reward=0.0, feedback=f"CRM updated: {field} = {action.value}")
+            return self._make_obs(reward=0.0, feedback=_api(200, field=field, value=action.value))
 
         elif act == "add_note":
             if not action.value:
-                return self._make_obs(reward=-0.5, feedback="Note text is empty.")
+                return self._make_obs(reward=-0.5, feedback=_api(400, error="empty_note"))
             self._crm["notes"].append(action.value)
-            return self._make_obs(reward=0.0, feedback=f"Note added to CRM.")
+            return self._make_obs(reward=0.0, feedback=_api(200, notes=len(self._crm["notes"])))
 
-        return self._make_obs(reward=-1.0, feedback="Unknown CRM action.")
+        return self._make_obs(reward=-1.0, feedback=_api(400, error="unknown_action", action=act))
 
     # --- Messaging tool ---
 
     def _handle_messaging(self, act, action):
         if act == "send_message":
-            if not self._has_read_crm:
-                return self._make_obs(reward=-1.0, feedback="Error: Must read CRM before sending messages. Use crm.read_candidate first.")
-            if self._pending_reply is not None:
-                return self._make_obs(reward=-1.0, feedback="Error: Unread reply pending. Use messaging.read_reply first.")
-
             topic = action.topic
             if topic not in VALID_TOPICS:
-                return self._make_obs(reward=-1.0, feedback=f"Unknown topic: {topic}. Valid: {', '.join(sorted(VALID_TOPICS))}")
+                return self._make_obs(reward=-1.0, feedback=_api(400, error="unknown_topic", topic=topic))
+
+            # Penalty for skipping CRM read, but still send
+            penalty = 0.0
+            if not self._has_read_crm:
+                penalty -= 1.0
+            # Penalty for ignoring pending reply (overwrite it), but still send
+            if self._pending_reply is not None:
+                penalty -= 1.0
+                self._pending_reply = None
 
             # Trust decay on each message
             self._driver["trust"] = max(0.0, self._driver["trust"] - self._driver["decay"])
@@ -1084,16 +1098,21 @@ class RecruitopenenvEnvironment(Environment):
             # Trust dropout check
             if self._driver["trust"] <= 0.1:
                 self._crm["stage"] = "ghosted"
-                return self._make_obs(reward=-4.0, done=True, feedback=_respond_ghosted(self._driver))
+                return self._make_obs(reward=-4.0, done=True, feedback=_api(200, result="ghosted", message=_respond_ghosted(self._driver)))
 
             # Generate response based on topic
             response, reward = self._generate_message_response(topic, action.job_id)
+            if response is None:
+                return self._make_obs(reward=reward + penalty, feedback=_api(404, error="no_valid_target", topic=topic))
+            if response == "NEGOTIATION_EXHAUSTED":
+                self._crm["stage"] = "lost"
+                return self._make_obs(reward=reward + penalty, done=True, feedback=_api(200, result="lost", reason="negotiation_exhausted"))
             self._pending_reply = (response, topic)
-            return self._make_obs(reward=reward, feedback=f"Message sent ({topic}). Use messaging.read_reply to get response.")
+            return self._make_obs(reward=reward + penalty, feedback=_api(200, topic=topic))
 
         elif act == "read_reply":
             if self._pending_reply is None:
-                return self._make_obs(reward=-0.5, feedback="No pending reply. Send a message first.")
+                return self._make_obs(reward=-0.5, feedback=_api(200, reply=None))
 
             response, topic = self._pending_reply
             self._pending_reply = None
@@ -1109,9 +1128,9 @@ class RecruitopenenvEnvironment(Environment):
             elif topic == "offer":
                 self._discovered_info.append(f"[OFFER] {response}")
 
-            return self._make_obs(reward=0.0, feedback=response)
+            return self._make_obs(reward=0.0, feedback=_api(200, topic=topic, reply=response))
 
-        return self._make_obs(reward=-1.0, feedback="Unknown messaging action.")
+        return self._make_obs(reward=-1.0, feedback=_api(400, error="unknown_action", action=act))
 
     def _generate_message_response(self, topic, job_id):
         """Generate driver's response to a message. Returns (response, reward)."""
@@ -1134,7 +1153,8 @@ class RecruitopenenvEnvironment(Environment):
         # --- Screening topics ---
         if topic in SCREENING_TOPICS:
             if not self._contacted:
-                return "...(no response — you haven't contacted this driver yet)", -1.0
+                # Still works but driver is cold — penalty
+                self._driver["trust"] = max(0.0, self._driver["trust"] - 0.15)
             ask_key = f"ask_{topic}"
             if ask_key in self._asked:
                 return _respond_repeat_question(self._driver, topic.replace("_", " ")), -0.5
@@ -1152,50 +1172,55 @@ class RecruitopenenvEnvironment(Environment):
                 "references": _respond_references,
             }
             response = respond_map[topic](self._driver)
-            return response, -0.1
+            penalty = -1.0 if not self._contacted else -0.1
+            return response, penalty
 
         # --- Pitch ---
         if topic == "pitch":
             if not self._contacted:
-                return "...(no response — you haven't contacted this driver yet)", -1.0
+                self._driver["trust"] = max(0.0, self._driver["trust"] - 0.15)
             matching = [j for j in self._jobs if j["job_id"] == job_id]
             if not matching:
-                return f"Job {job_id} not found. Use 0-5.", -1.0
-            return _respond_pitch(self._driver, matching[0]), -0.1
+                # No match — pick nothing, return None (will be caught by handler)
+                return None, -1.0
+            penalty = -1.0 if not self._contacted else -0.1
+            return _respond_pitch(self._driver, matching[0]), penalty
 
         # --- Offer ---
         if topic == "offer":
+            penalty = 0.0
             if self._approval_status != "approved":
-                return "Error: Approval not granted. Request and wait for approval first.", -2.0
+                # Allowed but heavy penalty — driver gets confused
+                self._driver["trust"] = max(0.0, self._driver["trust"] - 0.2)
+                penalty = -2.0
             job_id_to_use = self._approval_job_id if job_id < 0 else job_id
             matching = [j for j in self._jobs if j["job_id"] == job_id_to_use]
             if not matching:
-                return f"Job {job_id_to_use} not found.", -1.0
+                return None, -1.0 + penalty
             job = matching[0]
             self._matched_job_id = job_id_to_use
             score, issues, fatal = score_job_fit(self._driver, job)
             if not fatal:
                 score = min(100, score + self._negotiation_score_bonus)
             if fatal:
-                return _respond_offer_reject(self._driver, issues[0]), -0.5
+                return _respond_offer_reject(self._driver, issues[0]), -0.5 + penalty
             elif score >= 70:
-                return _respond_offer_accept(self._driver, job), 0.0
+                return _respond_offer_accept(self._driver, job), 0.0 + penalty
             elif score >= 50:
                 concern = issues[0] if issues else "minor concerns"
                 self._negotiation_concerns = issues
-                return _respond_offer_concerns(self._driver, job, concern), 0.0
+                return _respond_offer_concerns(self._driver, job, concern), 0.0 + penalty
             else:
-                return _respond_offer_reject(self._driver, issues[0] if issues else "not a fit"), -0.5
+                return _respond_offer_reject(self._driver, issues[0] if issues else "not a fit"), -0.5 + penalty
 
         # --- Negotiation topics ---
         if topic in ("negotiate_pay", "negotiate_home_time", "signing_bonus", "address_concern"):
             if self._matched_job_id < 0 and self._approval_job_id >= 0:
                 self._matched_job_id = self._approval_job_id
             if self._matched_job_id < 0:
-                return "No job selected for negotiation.", -1.0
+                return None, -1.0
             if self._negotiation_round >= 5:
-                self._crm["stage"] = "lost"
-                return f"{self._driver['name'].split()[0]} is tired of negotiating. They've moved on.", -2.0
+                return "NEGOTIATION_EXHAUSTED", -2.0
 
             self._negotiation_round += 1
             job = [j for j in self._jobs if j["job_id"] == self._matched_job_id][0]
@@ -1222,31 +1247,34 @@ class RecruitopenenvEnvironment(Environment):
             self._driver["trust"] = max(0.0, self._driver["trust"] - 0.01)
             return response, -0.1
 
-        return "Unknown topic.", -1.0
+        return None, -1.0
 
     # --- Approval tool ---
 
     def _handle_approval(self, act, action):
         if act == "request_approval":
-            if self._approval_status in ("pending", "approved"):
-                return self._make_obs(reward=-0.5, feedback=f"Approval already {self._approval_status}.")
             if action.job_id < 0:
-                return self._make_obs(reward=-1.0, feedback="Must specify job_id for approval request.")
+                return self._make_obs(reward=-1.0, feedback=_api(400, error="job_id_required"))
             matching = [j for j in self._jobs if j["job_id"] == action.job_id]
             if not matching:
-                return self._make_obs(reward=-1.0, feedback=f"Job {action.job_id} not found.")
+                return self._make_obs(reward=-1.0, feedback=_api(404, error="job_not_found", job_id=action.job_id))
+            # Allow re-request but penalize — resets approval
+            penalty = -0.5 if self._approval_status in ("pending", "approved") else 0.0
             self._approval_status = "pending"
             self._approval_job_id = action.job_id
-            return self._make_obs(reward=0.0, feedback=f"Approval requested for Job {action.job_id}. Use workflow.wait then approval.check_approval.")
+            return self._make_obs(reward=0.0 + penalty, feedback=_api(202, approval_status="pending", job_id=action.job_id))
 
         elif act == "check_approval":
             if self._approval_status == "none":
-                return self._make_obs(reward=-0.5, feedback="No approval requested. Use approval.request_approval first.")
+                return self._make_obs(reward=-0.5, feedback=_api(200, approval_status="none"))
             if self._approval_status == "pending":
-                return self._make_obs(reward=-0.5, feedback="Approval still pending. Use workflow.wait first.")
-            return self._make_obs(reward=0.0, feedback=f"Approval status: {self._approval_status} for Job {self._approval_job_id}.")
+                return self._make_obs(reward=-0.1, feedback=_api(202, approval_status="pending"))
+            return self._make_obs(
+                reward=0.5 if self._approval_status == "approved" else -0.5,
+                feedback=_api(200, approval_status=self._approval_status, job_id=self._approval_job_id)
+            )
 
-        return self._make_obs(reward=-1.0, feedback="Unknown approval action.")
+        return self._make_obs(reward=-1.0, feedback=_api(400, error="unknown_action", action=act))
 
     # --- Workflow tool ---
 
@@ -1259,19 +1287,17 @@ class RecruitopenenvEnvironment(Environment):
                     score, _, fatal = score_job_fit(self._driver, job[0])
                     if fatal:
                         self._approval_status = "denied"
-                        return self._make_obs(reward=0.0, feedback="Time passed. Approval was reviewed. Check status with approval.check_approval.")
                     else:
                         self._approval_status = "approved"
-                        return self._make_obs(reward=0.0, feedback="Time passed. Approval was reviewed. Check status with approval.check_approval.")
                 else:
                     self._approval_status = "denied"
-                    return self._make_obs(reward=0.0, feedback="Time passed. Job not found — approval denied.")
+                return self._make_obs(reward=0.0, feedback=_api(200, elapsed="1h"))
 
             # Generic wait — trust decay + penalty for wasting time
             self._driver["trust"] = max(0.0, self._driver["trust"] - 0.02)
-            return self._make_obs(reward=-0.5, feedback="Waited but nothing needed processing. Don't waste time.")
+            return self._make_obs(reward=-0.5, feedback=_api(200, elapsed="1h"))
 
-        return self._make_obs(reward=-1.0, feedback="Unknown workflow action.")
+        return self._make_obs(reward=-1.0, feedback=_api(400, error="unknown_action", action=act))
 
     # --- Terminal handlers ---
 
@@ -1315,23 +1341,25 @@ class RecruitopenenvEnvironment(Environment):
         # Cap: up to 5.0 bonus for perfect CRM (13 fields × 0.4 = 5.2)
         return max(0.0, min(5.0, score))
 
-    def _finalize_hire(self):
+    def _finalize_hire(self, stage_penalty=0.0):
         """Handle stage transition to hired — compute final reward."""
         crm_bonus = self._score_crm()
 
         if self._approval_status != "approved":
             self._crm["stage"] = "lost"
             return self._make_obs(
-                reward=-5.0,
-                done=True,
-                feedback="Cannot hire without approval. Episode failed."
+                reward=-5.0 + stage_penalty, done=True,
+                feedback=_api(200, result="lost", reason="no_approval")
             )
 
         job_id = self._approval_job_id
         matching = [j for j in self._jobs if j["job_id"] == job_id]
         if not matching:
             self._crm["stage"] = "lost"
-            return self._make_obs(reward=-5.0, done=True, feedback="No valid job for hire.")
+            return self._make_obs(
+                reward=-5.0 + stage_penalty, done=True,
+                feedback=_api(200, result="lost", reason="no_job")
+            )
 
         job = matching[0]
         score, issues, fatal = score_job_fit(self._driver, job)
@@ -1341,45 +1369,38 @@ class RecruitopenenvEnvironment(Environment):
         if fatal:
             self._crm["stage"] = "lost"
             return self._make_obs(
-                reward=-5.0,
-                done=True,
-                feedback=_respond_offer_reject(self._driver, issues[0])
+                reward=-5.0 + stage_penalty, done=True,
+                feedback=_api(200, result="rejected", reason=issues[0], job_id=job_id)
             )
         elif score >= 70:
             return self._make_obs(
-                reward=10.0 + crm_bonus,
-                done=True,
-                feedback=_respond_offer_accept(self._driver, job)
+                reward=10.0 + crm_bonus + stage_penalty, done=True,
+                feedback=_api(200, result="hired", job_id=job_id, score=score, crm_bonus=round(crm_bonus, 1))
             )
         elif score >= 50:
-            concern = issues[0] if issues else "minor concerns"
             return self._make_obs(
-                reward=4.0 + crm_bonus,
-                done=True,
-                feedback=f"Driver accepted with reservations: {concern}"
+                reward=4.0 + crm_bonus + stage_penalty, done=True,
+                feedback=_api(200, result="hired_with_reservations", job_id=job_id, score=score, concern=issues[0] if issues else "minor")
             )
         else:
             self._crm["stage"] = "lost"
             return self._make_obs(
-                reward=-5.0,
-                done=True,
-                feedback=_respond_offer_reject(self._driver, issues[0] if issues else "not a fit")
+                reward=-5.0 + stage_penalty, done=True,
+                feedback=_api(200, result="rejected", reason=issues[0] if issues else "poor_fit", job_id=job_id)
             )
 
-    def _finalize_lost(self):
+    def _finalize_lost(self, stage_penalty=0.0):
         """Handle stage transition to lost."""
         has_good = any(score_job_fit(self._driver, j)[0] >= 70 for j in self._jobs)
         if has_good:
             return self._make_obs(
-                reward=-3.0,
-                done=True,
-                feedback=f"You passed on {self._driver['name']}. A good match was available."
+                reward=-3.0 + stage_penalty, done=True,
+                feedback=_api(200, result="lost", good_match_existed=True)
             )
         else:
             return self._make_obs(
-                reward=1.0,
-                done=True,
-                feedback=f"You passed on {self._driver['name']}. No strong matches existed — correct call."
+                reward=1.0 + stage_penalty, done=True,
+                feedback=_api(200, result="lost", good_match_existed=False)
             )
 
     @property
