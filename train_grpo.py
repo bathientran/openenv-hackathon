@@ -144,7 +144,7 @@ def parse_action(text):
 ENV_URL = "http://localhost:8001"
 
 
-def rollout_once(trainer, env, tokenizer, prompt_text, system_prompt, max_turns=30):
+def rollout_once(trainer, env, tokenizer, prompt_text, system_prompt, max_turns=20):
     """Run one multi-turn episode, returning concatenated ids/logprobs and reward."""
     seed = random.randint(0, 2**31 - 1)
     result = env.reset(seed=seed)
@@ -320,9 +320,9 @@ def main():
         vllm_mode=args.vllm_mode,
         num_train_epochs=args.epochs,
         num_generations=args.num_generations,
-        max_completion_length=2048,
+        max_completion_length=512,
         per_device_train_batch_size=args.batch_size,
-        gradient_accumulation_steps=2,
+        gradient_accumulation_steps=4,
         gradient_checkpointing=True,
         learning_rate=args.lr,
         temperature=0.7,
