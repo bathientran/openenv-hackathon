@@ -1,8 +1,8 @@
 """
 GRPO training script for the Driver Recruit Environment.
 
-Uses TRL's GRPOTrainer with QLoRA (4-bit) for memory-efficient training
-of larger models on a single H100.
+Uses TRL's GRPOTrainer with rollout_func for multi-turn episodes.
+The model controls EVERY action in the episode, not just the first one.
 
 Usage:
     python train_grpo.py --model Qwen/Qwen2.5-3B-Instruct --use-qlora
@@ -108,84 +108,138 @@ def parse_action(text):
     return RecruitopenenvAction(action_type="ask_experience")
 
 
-def score_action(env, completion_text):
-    """Score just the model's chosen action — no heuristic follow-up.
+# --- Multi-turn rollout ---
 
-    This gives GRPO a clean signal: reward depends ONLY on the model's output,
-    not a fixed heuristic. Different actions get very different rewards,
-    creating the variance GRPO needs.
+ENV_URL = "http://localhost:8001"
+
+
+def rollout_func(prompts, trainer):
+    """Multi-turn rollout: model controls every action in the episode.
+
+    For each prompt, we:
+    1. Reset the env to get initial observation
+    2. Generate an action from the model
+    3. Step the env, append observation, generate next action
+    4. Repeat until done or max steps
+    5. Concatenate all actions into one "completion" for GRPO
+
+    Returns dict with prompt_ids, completion_ids, logprobs, and rewards.
     """
-    result = env.reset()
-    obs = result.observation
+    tokenizer = trainer.processing_class
+    model = trainer.model
+    device = model.device
 
-    action = parse_action(completion_text)
-    result = env.step(action)
+    all_prompt_ids = []
+    all_completion_ids = []
+    all_logprobs = []
+    all_rewards = []
 
-    # The step reward IS the signal — amplify it for GRPO contrast
-    step_reward = result.reward
+    env = RecruitopenenvEnv(base_url=ENV_URL)
 
-    # Bonus: if the action was contextually appropriate for the stage
-    stage = obs.stage
-    action_type = action.action_type
-    stage_bonus = 0.0
-    if stage == "outreach" and action_type in ("send_text", "call_candidate"):
-        stage_bonus = 2.0
-    elif stage == "screening" and action_type.startswith("ask_"):
-        stage_bonus = 1.5
-    elif stage == "matching" and action_type in ("pitch_job", "match_to_job"):
-        stage_bonus = 2.0
-    elif stage == "matched" and action_type == "submit_application":
-        stage_bonus = 3.0
-    # Penalize clearly wrong actions
-    elif stage == "outreach" and action_type in ("submit_application", "match_to_job"):
-        stage_bonus = -3.0
-    elif stage == "screening" and action_type == "submit_application":
-        stage_bonus = -2.0
+    for prompt_text in prompts:
+        # Tokenize the initial prompt
+        prompt_ids = tokenizer.encode(prompt_text, return_tensors="pt")[0]
+        all_prompt_ids.append(prompt_ids)
 
-    return step_reward + stage_bonus
+        # Run a full episode
+        result = env.reset()
+        obs = result.observation
+        total_reward = 0.0
 
+        # Build conversation as we go
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": format_observation(obs)},
+        ]
 
-# --- Reward functions ---
+        episode_completion_ids = []
+        episode_logprobs = []
+        steps = 0
 
-def reward_env(completions, env_url="http://localhost:8001", **kwargs):
-    """Score each completion's action choice."""
-    env = RecruitopenenvEnv(base_url=env_url)
-    rewards = []
-    for comp in completions:
-        text = comp[0]["content"] if isinstance(comp, list) else str(comp)
-        try:
-            reward = score_action(env, text)
-            rewards.append(float(reward))
-        except Exception:
-            rewards.append(-5.0)
-    env.close()
-    return rewards
+        while not result.done and steps < 15:
+            # Build current prompt from conversation
+            current_prompt = tokenizer.apply_chat_template(
+                messages, add_generation_prompt=True, tokenize=False
+            )
+            inputs = tokenizer(
+                current_prompt, return_tensors="pt",
+                truncation=True, max_length=2048
+            )
+            input_ids = inputs["input_ids"].to(device)
 
+            # Generate one action
+            with torch.no_grad():
+                outputs = model.generate(
+                    input_ids,
+                    attention_mask=inputs["attention_mask"].to(device),
+                    max_new_tokens=64,
+                    temperature=0.7,
+                    do_sample=True,
+                    pad_token_id=tokenizer.eos_token_id,
+                    return_dict_in_generate=True,
+                    output_logits=True,
+                )
 
-def reward_format(completions, **kwargs):
-    """Reward valid JSON action format — gives GRPO extra variance signal."""
-    rewards = []
-    for comp in completions:
-        text = comp[0]["content"] if isinstance(comp, list) else str(comp)
-        text = text.strip()
-        try:
-            # Remove markdown fences
-            if "```" in text:
-                for part in text.split("```"):
-                    part = part.strip()
-                    if part.startswith("json"):
-                        part = part[4:].strip()
-                    if part.startswith("{"):
-                        text = part
-                        break
-            data = json.loads(text)
-            if isinstance(data, dict) and "action_type" in data:
-                rewards.append(1.0)  # Valid JSON with action_type
+            # Extract new tokens and their logprobs
+            new_token_ids = outputs.sequences[0][input_ids.shape[1]:]
+
+            # Compute logprobs from logits
+            if hasattr(outputs, 'logits') and outputs.logits:
+                step_logprobs = []
+                for i, logits in enumerate(outputs.logits):
+                    if i < len(new_token_ids):
+                        log_probs = torch.log_softmax(logits[0], dim=-1)
+                        token_logprob = log_probs[new_token_ids[i]].item()
+                        step_logprobs.append(token_logprob)
+                episode_logprobs.extend(step_logprobs)
             else:
-                rewards.append(-0.5)
-        except (json.JSONDecodeError, KeyError):
-            rewards.append(-1.0)  # Not valid JSON
-    return rewards
+                episode_logprobs.extend([0.0] * len(new_token_ids))
+
+            episode_completion_ids.extend(new_token_ids.tolist())
+
+            # Decode and parse action
+            response = tokenizer.decode(new_token_ids, skip_special_tokens=True)
+            messages.append({"role": "assistant", "content": response})
+
+            action = parse_action(response)
+            result = env.step(action)
+            obs = result.observation
+            total_reward += result.reward
+            steps += 1
+
+            # Add next observation to conversation
+            if not result.done:
+                messages.append({"role": "user", "content": format_observation(obs)})
+
+        # Convert to tensors
+        if episode_completion_ids:
+            all_completion_ids.append(torch.tensor(episode_completion_ids))
+            all_logprobs.append(episode_logprobs)
+        else:
+            # Empty episode fallback
+            all_completion_ids.append(torch.tensor([tokenizer.eos_token_id]))
+            all_logprobs.append([0.0])
+
+        all_rewards.append(total_reward)
+
+    env.close()
+
+    return {
+        "prompt_ids": all_prompt_ids,
+        "completion_ids": all_completion_ids,
+        "logprobs": all_logprobs,
+        "env_reward": all_rewards,
+    }
+
+
+# --- Reward function (receives env_reward from rollout) ---
+
+def reward_total(completions, env_reward=None, **kwargs):
+    """Use the total episode reward computed during rollout."""
+    if env_reward is not None:
+        return env_reward
+    # Fallback if env_reward not passed
+    return [0.0] * len(completions)
 
 
 # --- Main ---
@@ -195,7 +249,7 @@ def main():
     parser.add_argument("--model", default="Qwen/Qwen2.5-3B-Instruct", help="Model to train")
     parser.add_argument("--env-url", default="http://localhost:8001", help="Environment server URL")
     parser.add_argument("--num-episodes", type=int, default=256, help="Number of training episodes (dataset size)")
-    parser.add_argument("--num-generations", type=int, default=8, help="GRPO generations per prompt")
+    parser.add_argument("--num-generations", type=int, default=4, help="GRPO generations per prompt")
     parser.add_argument("--batch-size", type=int, default=2, help="Per-device batch size")
     parser.add_argument("--epochs", type=int, default=3, help="Number of training epochs")
     parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate")
@@ -205,11 +259,14 @@ def main():
     parser.add_argument("--lora-alpha", type=int, default=32, help="LoRA alpha")
     args = parser.parse_args()
 
+    global ENV_URL
+    ENV_URL = args.env_url
+
     # Tokenizer
     tokenizer = AutoTokenizer.from_pretrained(args.model)
 
-    # Build the dataset - each prompt is a recruiter scenario
-    # The model sees this prompt and generates an action
+    # Build the dataset — just needs prompt strings
+    # Each prompt is a different recruiting scenario
     prompts = []
     env = RecruitopenenvEnv(base_url=args.env_url)
     for i in range(args.num_episodes):
@@ -248,13 +305,13 @@ def main():
         )
         print(f"Using QLoRA: r={args.lora_r}, alpha={args.lora_alpha}, 4-bit")
 
-    # GRPO config — no vLLM, pure PyTorch generation
+    # GRPO config
     grpo_config = GRPOConfig(
         output_dir=args.output_dir,
         use_vllm=False,
         num_train_epochs=args.epochs,
         num_generations=args.num_generations,
-        max_completion_length=64,
+        max_completion_length=512,  # Longer for multi-turn
         per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=4,
         gradient_checkpointing=True,
@@ -263,17 +320,18 @@ def main():
         save_steps=50,
         bf16=True,
         report_to="wandb",
-        run_name="recruit-grpo",
+        run_name="recruit-grpo-multiturn",
         model_init_kwargs=model_kwargs if model_kwargs else None,
     )
 
-    # Trainer
+    # Trainer with rollout_func — model controls every turn
     trainer_kwargs = dict(
         model=args.model,
         processing_class=tokenizer,
-        reward_funcs=[reward_env, reward_format],
+        reward_funcs=[reward_total],
         train_dataset=dataset,
         args=grpo_config,
+        rollout_func=rollout_func,
     )
     if peft_config is not None:
         trainer_kwargs["peft_config"] = peft_config
@@ -281,12 +339,12 @@ def main():
     trainer = GRPOTrainer(**trainer_kwargs)
 
     print("=" * 50)
-    print(f"Training {args.model}")
+    print(f"Training {args.model} (MULTI-TURN rollout)")
     print(f"Environment: {args.env_url}")
     print(f"QLoRA: {args.use_qlora}")
     print(f"Episodes: {args.num_episodes}")
     print(f"Epochs: {args.epochs}")
-    print(f"vLLM: disabled (pure PyTorch)")
+    print(f"Generations per prompt: {args.num_generations}")
     print("=" * 50)
 
     trainer.train()
