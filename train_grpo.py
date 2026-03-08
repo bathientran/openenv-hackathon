@@ -4,14 +4,14 @@ GRPO training script for the Driver Recruit Environment.
 Uses TRL's GRPOTrainer with a custom rollout_func that interacts
 with the OpenEnv recruiting environment.
 
-Usage (colocate mode, 1 GPU):
-    python train_grpo.py --vllm-mode colocate
+Usage (colocate mode, 1 GPU, with LoRA for 7B):
+    python train_grpo.py --model Qwen/Qwen2.5-7B-Instruct --use-lora --vllm-mode colocate
 
 Usage (server mode, 2+ GPUs):
     # Terminal 1: Start vLLM server
-    CUDA_VISIBLE_DEVICES=0 trl vllm-serve --model Qwen/Qwen2.5-1.5B-Instruct --host 0.0.0.0 --port 8000
+    CUDA_VISIBLE_DEVICES=0 trl vllm-serve --model Qwen/Qwen2.5-7B-Instruct --host 0.0.0.0 --port 8000
     # Terminal 2: Run training
-    CUDA_VISIBLE_DEVICES=1 python train_grpo.py --vllm-mode server --vllm-server-url http://localhost:8000
+    CUDA_VISIBLE_DEVICES=1 python train_grpo.py --model Qwen/Qwen2.5-7B-Instruct --use-lora --vllm-mode server --vllm-server-url http://localhost:8000
 """
 
 import argparse
@@ -214,11 +214,7 @@ def reward_placement(completions, **kwargs):
 
 
 def reward_regret(completions, **kwargs):
-    """Differentiate regrettable failures from intrinsic ones.
-
-    Regrettable: a good match existed but the model failed to place.
-    Intrinsic: no good match existed — correct action was reject_candidate.
-    """
+    """Differentiate regrettable failures from intrinsic ones."""
     env_rewards = kwargs.get("env_reward", [])
     placeable = kwargs.get("was_placeable", [])
     if not env_rewards or not placeable:
@@ -226,10 +222,8 @@ def reward_regret(completions, **kwargs):
     rewards = []
     for r, was_p in zip(env_rewards, placeable):
         if was_p and r < 0:
-            # Had a good match but failed — regrettable, extra penalty
             rewards.append(-2.0)
         elif not was_p and r > 0:
-            # No good match and correctly rejected — good judgment bonus
             rewards.append(+2.0)
         else:
             rewards.append(0.0)
@@ -240,16 +234,19 @@ def reward_regret(completions, **kwargs):
 
 def main():
     parser = argparse.ArgumentParser(description="GRPO training for Driver Recruit Environment")
-    parser.add_argument("--model", default="Qwen/Qwen2.5-1.5B-Instruct", help="Model to train")
-    parser.add_argument("--env-url", default="http://localhost:8000", help="Environment server URL")
+    parser.add_argument("--model", default="Qwen/Qwen2.5-7B-Instruct", help="Model to train")
+    parser.add_argument("--env-url", default="http://localhost:8001", help="Environment server URL")
     parser.add_argument("--vllm-mode", default="colocate", choices=["colocate", "server"])
     parser.add_argument("--vllm-server-url", default="http://localhost:8000", help="vLLM server URL (server mode)")
-    parser.add_argument("--num-episodes", type=int, default=32, help="Number of training episodes (dataset size)")
+    parser.add_argument("--num-episodes", type=int, default=256, help="Number of training episodes (dataset size)")
     parser.add_argument("--num-generations", type=int, default=2, help="GRPO generations per prompt")
-    parser.add_argument("--batch-size", type=int, default=4, help="Per-device batch size")
-    parser.add_argument("--epochs", type=int, default=1, help="Number of training epochs")
+    parser.add_argument("--batch-size", type=int, default=1, help="Per-device batch size")
+    parser.add_argument("--epochs", type=int, default=3, help="Number of training epochs")
     parser.add_argument("--lr", type=float, default=5e-6, help="Learning rate")
     parser.add_argument("--output-dir", default="./recruit-grpo-output", help="Output directory")
+    parser.add_argument("--use-lora", action="store_true", help="Use LoRA for memory-efficient training")
+    parser.add_argument("--lora-r", type=int, default=16, help="LoRA rank")
+    parser.add_argument("--lora-alpha", type=int, default=32, help="LoRA alpha")
     args = parser.parse_args()
 
     # Tokenizer
@@ -259,11 +256,23 @@ def main():
     env = RecruitopenenvEnv(base_url=args.env_url)
 
     # Dataset — each prompt triggers one episode
-    # The actual prompt content doesn't matter much since rollout_func
-    # resets the env and builds its own prompts from observations
     dataset = Dataset.from_dict({
         "prompt": ["You are a truck driver recruiter. Find the best job match for the candidate."] * args.num_episodes
     })
+
+    # LoRA config
+    peft_config = None
+    if args.use_lora:
+        from peft import LoraConfig
+        peft_config = LoraConfig(
+            r=args.lora_r,
+            lora_alpha=args.lora_alpha,
+            lora_dropout=0.05,
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                            "gate_proj", "up_proj", "down_proj"],
+            task_type="CAUSAL_LM",
+        )
+        print(f"Using LoRA: r={args.lora_r}, alpha={args.lora_alpha}")
 
     # GRPO config
     grpo_config = GRPOConfig(
@@ -273,7 +282,7 @@ def main():
         vllm_server_base_url=args.vllm_server_url if args.vllm_mode == "server" else None,
         num_train_epochs=args.epochs,
         num_generations=args.num_generations,
-        max_completion_length=64,  # Actions are short JSON
+        max_completion_length=64,
         per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=4,
         gradient_checkpointing=True,
@@ -281,11 +290,11 @@ def main():
         logging_steps=1,
         save_steps=50,
         bf16=True,
-        report_to="none",  # Set to "wandb" if you want logging
+        report_to="none",
     )
 
     # Trainer
-    trainer = GRPOTrainer(
+    trainer_kwargs = dict(
         model=args.model,
         processing_class=tokenizer,
         reward_funcs=[reward_from_env, reward_placement, reward_regret],
@@ -293,11 +302,16 @@ def main():
         rollout_func=make_rollout_func(env, tokenizer),
         args=grpo_config,
     )
+    if peft_config is not None:
+        trainer_kwargs["peft_config"] = peft_config
+
+    trainer = GRPOTrainer(**trainer_kwargs)
 
     print("=" * 50)
     print(f"Training {args.model}")
     print(f"Environment: {args.env_url}")
     print(f"vLLM mode: {args.vllm_mode}")
+    print(f"LoRA: {args.use_lora}")
     print(f"Episodes: {args.num_episodes}")
     print(f"Epochs: {args.epochs}")
     print("=" * 50)
