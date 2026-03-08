@@ -54,10 +54,10 @@ DEAL_BREAKERS_ALL = [
 ]
 
 PERSONALITY_PARAMS = {
-    "chatty":       {"initial_trust": 0.60, "decay": 0.02, "reveal_breakers": "all"},
-    "professional": {"initial_trust": 0.50, "decay": 0.03, "reveal_breakers": "all"},
-    "impatient":    {"initial_trust": 0.45, "decay": 0.06, "reveal_breakers": "partial"},
-    "suspicious":   {"initial_trust": 0.35, "decay": 0.04, "reveal_breakers": "all_if_trusted"},
+    "chatty":       {"initial_trust": 0.80, "decay": 0.02, "reveal_breakers": "all"},
+    "professional": {"initial_trust": 0.70, "decay": 0.025, "reveal_breakers": "all"},
+    "impatient":    {"initial_trust": 0.60, "decay": 0.04, "reveal_breakers": "partial"},
+    "suspicious":   {"initial_trust": 0.55, "decay": 0.03, "reveal_breakers": "all_if_trusted"},
 }
 
 AVAILABILITIES = ["immediately", "2_weeks", "1_month", "negotiable"]
