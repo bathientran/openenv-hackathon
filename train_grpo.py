@@ -83,11 +83,14 @@ def parse_action(text):
     # Try JSON
     try:
         data = json.loads(text)
-        return RecruitopenenvAction(
-            action_type=data["action_type"],
-            job_id=data.get("job_id", -1),
-        )
-    except (json.JSONDecodeError, KeyError):
+        if isinstance(data, list):
+            data = data[0] if data else {}
+        if isinstance(data, dict) and "action_type" in data:
+            return RecruitopenenvAction(
+                action_type=data["action_type"],
+                job_id=data.get("job_id", -1),
+            )
+    except (json.JSONDecodeError, KeyError, IndexError):
         pass
 
     # Fallback: find action name in text
