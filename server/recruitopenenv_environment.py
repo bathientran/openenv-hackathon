@@ -1,11 +1,12 @@
 """
-Driver Recruit Environment — Stage 2 (Hard Mode).
+Driver Recruit Environment — Tool-based Long-Horizon.
 
-Only the driver's name is visible. Everything else must be discovered
-through screening questions. Driver personalities affect response quality.
-Trap jobs test whether the agent gathered enough info.
+Agent interacts through 4 tools: CRM, messaging, approval, workflow.
+Each recruiting interaction requires multiple tool calls, creating
+naturally long episodes (40-70 steps).
 
-Pipeline: outreach → screening → matching → matched → submitted/rejected
+Pipeline: lead → contacted → interested → approval_pending → offer_sent → hired
+Terminal failures: lost, ghosted
 """
 
 import random
@@ -58,14 +59,46 @@ PERSONALITY_PARAMS = {
     "suspicious":   {"initial_trust": 0.35, "decay": 0.04, "reveal_breakers": "all_if_trusted"},
 }
 
-MAX_STEPS = 15
+AVAILABILITIES = ["immediately", "2_weeks", "1_month", "negotiable"]
+VIOLATION_LEVELS = ["clean", "minor", "major"]
+MEDICAL_CARD_STATUS = ["valid", "expiring_soon", "expired"]
+REFERENCE_QUALITY = ["strong", "mixed", "none"]
 
-VALID_ACTIONS = {
-    "send_text", "call_candidate",
-    "ask_experience", "ask_home_time", "ask_pay", "ask_equipment",
-    "ask_route", "ask_deal_breakers",
-    "pitch_job", "match_to_job",
-    "submit_application", "reject_candidate",
+MAX_STEPS = 75
+
+VALID_TOOL_ACTIONS = {
+    "crm": {"read_candidate", "update_stage", "update_field", "add_note"},
+    "messaging": {"send_message", "read_reply"},
+    "approval": {"request_approval", "check_approval"},
+    "workflow": {"wait"},
+}
+
+VALID_TOPICS = {
+    "greeting", "call",
+    "experience", "home_time", "pay", "equipment", "route", "deal_breakers",
+    "availability", "violations", "medical_card", "references",
+    "pitch", "offer",
+    "negotiate_pay", "negotiate_home_time", "signing_bonus", "address_concern",
+}
+
+VALID_STAGE_TRANSITIONS = {
+    "lead": {"contacted"},
+    "contacted": {"interested", "lost"},
+    "interested": {"approval_pending", "lost"},
+    "approval_pending": {"offer_sent", "lost"},
+    "offer_sent": {"hired", "lost"},
+}
+
+SCREENING_TOPICS = {
+    "experience", "home_time", "pay", "equipment", "route", "deal_breakers",
+    "availability", "violations", "medical_card", "references",
+}
+
+VALID_CRM_FIELDS = {
+    "cdl_class", "years_experience", "endorsements", "location",
+    "home_time_pref", "pay_expectation", "equipment_pref", "route_pref",
+    "deal_breakers", "availability", "violations", "medical_card", "references",
+    "matched_job",
 }
 
 
@@ -107,25 +140,23 @@ def generate_driver():
         "equipment_pref": equipment_pref,
         "route_pref": random.choices(ROUTE_TYPES, weights=[20, 30, 30, 20])[0],
         "deal_breakers": deal_breakers,
+        "availability": random.choices(AVAILABILITIES, weights=[30, 35, 25, 10])[0],
+        "violations": random.choices(VIOLATION_LEVELS, weights=[60, 30, 10])[0],
+        "medical_card": random.choices(MEDICAL_CARD_STATUS, weights=[70, 20, 10])[0],
+        "references": random.choices(REFERENCE_QUALITY, weights=[40, 40, 20])[0],
     }
 
 
 def generate_jobs(driver):
-    """Generate 6 jobs: 1-2 good, 1-2 traps, 2-3 bad.
-
-    ~20% of episodes have no good match — the correct action is reject_candidate.
-    This teaches the model to distinguish placeable vs unplaceable drivers.
-    """
+    """Generate 6 jobs: 1-2 good, 1-2 traps, 2-3 bad."""
     jobs = []
     if random.random() > 0.2:
         jobs.append(_make_good_job(driver, 0))
     else:
-        # Replace good job with another trap — no good match exists
         jobs.append(_make_trap_job(driver, 0))
     jobs.append(_make_trap_job(driver, 1))
     jobs.append(_make_partial_job(driver, 2))
 
-    # Job 3: Bad — wrong CDL
     bad_cdl = "B" if driver["cdl_class"] == "A" else "A"
     jobs.append({
         "job_id": 3, "company": random.choice(COMPANIES),
@@ -141,9 +172,11 @@ def generate_jobs(driver):
         "hazmat_premium": False,
         "benefits": random.choice(["none", "basic", "good"]),
         "location": random.choice(LOCATIONS),
+        "start_urgency": random.choice(["immediate", "flexible"]),
+        "requires_clean_record": random.random() < 0.3,
+        "requires_medical": True,
     })
 
-    # Job 4: Bad — needs way too much experience
     jobs.append({
         "job_id": 4, "company": random.choice(COMPANIES),
         "required_cdl": driver["cdl_class"],
@@ -157,9 +190,11 @@ def generate_jobs(driver):
         "team_driving": False, "northeast_routes": False,
         "hazmat_premium": True, "benefits": "excellent",
         "location": random.choice(LOCATIONS),
+        "start_urgency": "flexible",
+        "requires_clean_record": True,
+        "requires_medical": True,
     })
 
-    # Job 5: Another trap or bad
     if random.random() < 0.5:
         jobs.append(_make_trap_job(driver, 5))
     else:
@@ -175,6 +210,9 @@ def generate_jobs(driver):
             "team_driving": False, "northeast_routes": False,
             "hazmat_premium": False, "benefits": "good",
             "location": random.choice(LOCATIONS),
+            "start_urgency": random.choice(["immediate", "flexible"]),
+            "requires_clean_record": random.random() < 0.3,
+            "requires_medical": True,
         })
 
     random.shuffle(jobs)
@@ -198,11 +236,13 @@ def _make_good_job(driver, job_id):
         "hazmat_premium": "H" in driver.get("endorsements", []),
         "benefits": random.choice(["good", "excellent"]),
         "location": random.choice(LOCATIONS),
+        "start_urgency": random.choice(["immediate", "flexible"]),
+        "requires_clean_record": random.random() < 0.3,
+        "requires_medical": True,
     }
 
 
 def _make_trap_job(driver, job_id):
-    """Looks good but has one of the driver's deal breakers."""
     trap = _make_good_job(driver, job_id)
     breaker = random.choice(driver["deal_breakers"])
     if breaker == "touch_freight":
@@ -222,7 +262,6 @@ def _make_trap_job(driver, job_id):
 
 
 def _make_partial_job(driver, job_id):
-    """Close match but slightly off on pay or home time."""
     job = _make_good_job(driver, job_id)
     if random.random() < 0.5:
         job["pay_cpm"] = round(driver["min_cpm"] - random.uniform(0.01, 0.06), 2)
@@ -246,12 +285,17 @@ def format_jobs(jobs):
         if j["northeast_routes"]:
             flags.append("northeast routes")
         flag_str = f" [{', '.join(flags)}]" if flags else ""
+        urgency = j.get("start_urgency", "flexible")
+        clean = "clean record required" if j.get("requires_clean_record") else ""
+        medical = "DOT medical required" if j.get("requires_medical") else ""
+        reqs = ", ".join(filter(None, [clean, medical]))
+        req_str = f" ({reqs})" if reqs else ""
         lines.append(
             f"Job {j['job_id']}: {j['company']} — CDL-{j['required_cdl']}, "
             f"{j['min_experience']}+ yrs, {j['route_type']}, "
             f"${j['pay_cpm']}/mi, {j['home_time']} home, "
             f"{j['equipment']}, endorsements: {endorse}, "
-            f"benefits: {j['benefits']}{flag_str}"
+            f"benefits: {j['benefits']}, start: {urgency}{req_str}{flag_str}"
         )
     return "\n".join(lines)
 
@@ -272,7 +316,6 @@ def score_job_fit(driver, job):
     score = 100
     issues = []
 
-    # Fatal: hard requirements
     if driver["cdl_class"] != job["required_cdl"]:
         return 0, ["CDL class mismatch"], True
     if driver["experience_years"] < job["min_experience"]:
@@ -281,7 +324,6 @@ def score_job_fit(driver, job):
         if e not in driver["endorsements"]:
             return 0, [f"Missing {e} endorsement"], True
 
-    # Fatal: deal breakers
     if job["has_touch_freight"] and "touch_freight" in driver["deal_breakers"]:
         return 0, ["Touch freight is a deal breaker"], True
     if job["forced_dispatch"] and "forced_dispatch" in driver["deal_breakers"]:
@@ -296,7 +338,6 @@ def score_job_fit(driver, job):
     if job["benefits"] == "none" and "no_benefits" in driver["deal_breakers"]:
         return 0, ["No benefits is a deal breaker"], True
 
-    # Soft: pay
     if job["pay_cpm"] < driver["min_cpm"]:
         diff = driver["min_cpm"] - job["pay_cpm"]
         if diff > 0.10:
@@ -304,20 +345,38 @@ def score_job_fit(driver, job):
         score -= int(diff * 400)
         issues.append(f"Pay is ${diff:.2f}/mi below minimum")
 
-    # Soft: home time
     if job["home_time"] != driver["home_time_pref"]:
         score -= 25
         issues.append(f"Home time: job={job['home_time']}, wants={driver['home_time_pref']}")
 
-    # Soft: route
     if job["route_type"] != driver["route_pref"]:
         score -= 15
         issues.append(f"Route: job={job['route_type']}, wants={driver['route_pref']}")
 
-    # Soft: equipment
     if job["equipment"] != driver["equipment_pref"]:
         score -= 10
         issues.append(f"Equipment: job={job['equipment']}, prefers={driver['equipment_pref']}")
+
+    if job.get("requires_clean_record") and driver.get("violations") == "major":
+        return 0, ["Major violations disqualify for this position"], True
+    if job.get("requires_medical") and driver.get("medical_card") == "expired":
+        return 0, ["Expired DOT medical card"], True
+
+    if job.get("requires_clean_record") and driver.get("violations") == "minor":
+        score -= 15
+        issues.append("Minor violations may be a concern for clean-record position")
+    if driver.get("medical_card") == "expiring_soon":
+        score -= 5
+        issues.append("DOT medical card expiring soon, needs renewal")
+    if job.get("start_urgency") == "immediate" and driver.get("availability") == "1_month":
+        score -= 20
+        issues.append("Driver can't start for a month, job needs immediate start")
+    if driver.get("references") == "none":
+        score -= 10
+        issues.append("No references available")
+    elif driver.get("references") == "mixed":
+        score -= 5
+        issues.append("Mixed references from previous employers")
 
     return max(0, score), issues, False
 
@@ -346,7 +405,7 @@ def _respond_experience(driver):
         if driver["trust"] < 0.5:
             return f"I've got a CDL-{cdl}. Been driving a while, out of {loc}."
         return f"CDL-{cdl}, {yrs} years experience. Endorsements: {endorse_str}. Based in {loc}."
-    else:  # professional
+    else:
         return (
             f"I hold a CDL-{cdl} with {yrs} years of commercial driving experience. "
             f"Endorsements: {endorse_str}. I'm located in {loc}."
@@ -356,7 +415,6 @@ def _respond_experience(driver):
 def _respond_home_time(driver):
     p = driver["personality"]
     pref = driver["home_time_pref"]
-
     templates = {
         "chatty": {
             "daily": "Oh yeah, I gotta be home every night. My wife would kill me otherwise! We got three kids and I help with homework every evening.",
@@ -389,7 +447,6 @@ def _respond_home_time(driver):
 def _respond_pay(driver):
     p = driver["personality"]
     cpm = driver["min_cpm"]
-
     if p == "chatty":
         return f"I'm making ${cpm}/mile right now and honestly I won't move for less. If you can beat that by a few cents and throw in a decent sign-on bonus, I'm listening."
     elif p == "impatient":
@@ -406,7 +463,6 @@ def _respond_equipment(driver):
     p = driver["personality"]
     pref = driver["equipment_pref"]
     pretty = pref.replace("_", " ")
-
     if p == "chatty":
         extra = " Got my tanker endorsement too so I can do that." if "N" in driver["endorsements"] else ""
         return f"I've been running {pretty} mostly. Love it, got the hang of it.{extra} Wouldn't mind sticking with what I know."
@@ -423,7 +479,6 @@ def _respond_equipment(driver):
 def _respond_route(driver):
     p = driver["personality"]
     pref = driver["route_pref"]
-
     routes = {
         "chatty": {
             "OTR": "I like the open road, OTR is my thing. See the country, you know?",
@@ -451,7 +506,6 @@ def _respond_route(driver):
 def _respond_deal_breakers(driver):
     p = driver["personality"]
     breakers = driver["deal_breakers"]
-
     labels = {
         "touch_freight": "touch freight",
         "forced_dispatch": "forced dispatch",
@@ -460,12 +514,10 @@ def _respond_deal_breakers(driver):
         "hazmat_no_premium": "hazmat without extra pay",
         "no_benefits": "no health benefits",
     }
-
     if p == "chatty":
         items = [labels[b] for b in breakers]
         return f"Oh man, don't even get me started. I will NOT do {', '.join(items)}. Had bad experiences with all of that."
     elif p == "impatient":
-        # Only reveals FIRST deal breaker
         return f"No {labels[breakers[0]]}. That's my line."
     elif p == "suspicious":
         if driver["trust"] < 0.5:
@@ -477,10 +529,136 @@ def _respond_deal_breakers(driver):
         return f"My non-negotiables: no {', no '.join(items)}."
 
 
-def _respond_pitch(driver, job):
-    """Driver reacts to a pitched job."""
-    score, issues, fatal = score_job_fit(driver, job)
+def _respond_availability(driver):
+    p = driver["personality"]
+    avail = driver["availability"]
+    labels = {"immediately": "right away", "2_weeks": "in about two weeks", "1_month": "in about a month", "negotiable": "depends on the offer"}
+    if p == "chatty":
+        if avail == "immediately":
+            return "I'm ready to go! Just left my last company, sitting at home going crazy. Can start tomorrow if you need me."
+        elif avail == "2_weeks":
+            return "I need to give my current place two weeks notice. They've been good to me, wanna leave right."
+        elif avail == "1_month":
+            return "It'll be about a month. I'm finishing up a contract and need to wrap some things up at home too."
+        else:
+            return "Depends on what you've got. For the right job I could move quick, otherwise I'm okay where I am."
+    elif p == "impatient":
+        return f"Can start {labels[avail]}."
+    elif p == "suspicious":
+        if driver["trust"] < 0.5:
+            return "Why do you need to know that already? I'll be available when I'm available."
+        return f"I can start {labels[avail]}."
+    else:
+        return f"I'm available to start {labels[avail]}. I can be flexible depending on the opportunity."
 
+
+def _respond_violations(driver):
+    p = driver["personality"]
+    violations = driver["violations"]
+    if p == "chatty":
+        if violations == "clean":
+            return "Clean record, twenty years no accidents! Well, one close call in '09 but that wasn't my fault. Nothing on the record though."
+        elif violations == "minor":
+            return "I had a minor thing a while back, nothing serious. A speeding ticket in a construction zone. Learned my lesson."
+        else:
+            return "Look, I had an incident a few years ago. It was a bad situation but I've cleaned up since then. I'm a different driver now."
+    elif p == "impatient":
+        if violations == "clean":
+            return "Clean record."
+        elif violations == "minor":
+            return "Minor stuff, nothing serious."
+        else:
+            return "I've had some issues. It's in the past."
+    elif p == "suspicious":
+        if driver["trust"] < 0.5:
+            return "Why are you asking about that? My record is my business."
+        if violations == "clean":
+            return "My record is clean. You can check."
+        elif violations == "minor":
+            return "There's a minor thing on there but nothing that should matter."
+        else:
+            return "I've had some trouble before. But I've been clean for two years now."
+    else:
+        if violations == "clean":
+            return "I have a clean driving record with no violations or incidents."
+        elif violations == "minor":
+            return "I have a minor violation on record. I'm happy to discuss the details."
+        else:
+            return "I do have a violation on my record. I've taken corrective steps since then."
+
+
+def _respond_medical_card(driver):
+    p = driver["personality"]
+    status = driver["medical_card"]
+    if p == "chatty":
+        if status == "valid":
+            return "Yep, DOT medical is all good! Just renewed it last month actually. Passed with flying colors."
+        elif status == "expiring_soon":
+            return "Oh yeah, I need to renew that soon actually. Thanks for reminding me. It's coming up in a few weeks."
+        else:
+            return "Ugh, yeah, it expired. I've been meaning to get that renewed. Can I still apply while I'm working on it?"
+    elif p == "impatient":
+        if status == "valid":
+            return "DOT medical is current."
+        elif status == "expiring_soon":
+            return "Expires soon. I'll renew it."
+        else:
+            return "It's expired. I'll get it done."
+    elif p == "suspicious":
+        if driver["trust"] < 0.5:
+            return "My medical stuff is between me and my doctor."
+        if status == "valid":
+            return "My DOT medical is current and valid."
+        elif status == "expiring_soon":
+            return "It's expiring soon but I've got an appointment scheduled."
+        else:
+            return "It lapsed. I can get it renewed if there's a real opportunity here."
+    else:
+        if status == "valid":
+            return "My DOT medical certificate is current and valid."
+        elif status == "expiring_soon":
+            return "My medical card is expiring soon. I plan to renew it promptly."
+        else:
+            return "My DOT medical has expired. I'm prepared to renew it for the right position."
+
+
+def _respond_references(driver):
+    p = driver["personality"]
+    refs = driver["references"]
+    if p == "chatty":
+        if refs == "strong":
+            return "Oh yeah, my last dispatcher loved me! You can call anyone I've worked for. They'll all say good things."
+        elif refs == "mixed":
+            return "Most of my old bosses would say good things... I had a rough patch at one place but we parted okay."
+        else:
+            return "I've mostly done owner-operator stuff, so I don't really have traditional references. But I can show you my load history!"
+    elif p == "impatient":
+        if refs == "strong":
+            return "References are solid. Call whoever you want."
+        elif refs == "mixed":
+            return "Some are better than others."
+        else:
+            return "Don't have references. I work for myself."
+    elif p == "suspicious":
+        if driver["trust"] < 0.5:
+            return "I'm not giving you names until I know this is serious."
+        if refs == "strong":
+            return "I've got good references. I'll provide them when we're further along."
+        elif refs == "mixed":
+            return "I have some references. It depends on who you talk to."
+        else:
+            return "I don't have traditional references."
+    else:
+        if refs == "strong":
+            return "I have strong references from my previous employers. Happy to provide contact information."
+        elif refs == "mixed":
+            return "I can provide references. My track record has been generally positive."
+        else:
+            return "I don't have employer references available, though I can provide other professional contacts."
+
+
+def _respond_pitch(driver, job):
+    score, issues, fatal = score_job_fit(driver, job)
     if fatal:
         reason = issues[0] if issues else "not a fit"
         p = driver["personality"]
@@ -518,13 +696,13 @@ def _respond_pitch(driver, job):
 # --- Contact response templates ---
 
 
-def _respond_contact_good(driver, act):
+def _respond_contact_good(driver, topic):
     p = driver["personality"]
-    method = "text" if act == "send_text" else "call"
+    method = "text" if topic == "greeting" else "call"
     if p == "chatty":
         if method == "text":
-            return f"Hey! Yeah I got your text. I've been looking for something new actually. What do you have for me?"
-        return f"Hello? Oh hey, yeah I was hoping someone would reach out. I'm definitely interested in hearing about opportunities."
+            return "Hey! Yeah I got your text. I've been looking for something new actually. What do you have for me?"
+        return "Hello? Oh hey, yeah I was hoping someone would reach out. I'm definitely interested in hearing about opportunities."
     elif p == "impatient":
         if method == "text":
             return "Got your text. What do you have?"
@@ -539,28 +717,26 @@ def _respond_contact_good(driver, act):
         return "Hello, thanks for the call. I'm currently exploring new opportunities. What do you have?"
 
 
-def _respond_contact_text_to_caller(driver):
+def _respond_contact_wrong(driver, topic):
     p = driver["personality"]
-    if p == "chatty":
-        return "Oh hey, got your text. I usually prefer a phone call but no worries, what's up?"
-    elif p == "impatient":
-        return "Text is fine I guess. What do you want?"
-    elif p == "suspicious":
-        return "...Who is this? I don't usually respond to random texts."
-    else:
-        return "I received your message. I generally prefer a phone call, but I'm happy to chat. What positions are available?"
-
-
-def _respond_contact_call_to_texter(driver):
-    p = driver["personality"]
-    if p == "chatty":
-        return "Oh, uh, hey. I wasn't expecting a call. I'm kinda busy, could you text me instead? ...Fine, what is it?"
-    elif p == "impatient":
-        return "I don't pick up unknown numbers usually. Should've texted. What do you want?"
-    elif p == "suspicious":
-        return "Who is this? I don't answer calls from numbers I don't know. You should have texted me."
-    else:
-        return "Hello. I prefer to communicate via text if possible. But go ahead, what do you have?"
+    if topic == "greeting":  # texted a caller
+        if p == "chatty":
+            return "Oh hey, got your text. I usually prefer a phone call but no worries, what's up?"
+        elif p == "impatient":
+            return "Text is fine I guess. What do you want?"
+        elif p == "suspicious":
+            return "...Who is this? I don't usually respond to random texts."
+        else:
+            return "I received your message. I generally prefer a phone call, but I'm happy to chat."
+    else:  # called a texter
+        if p == "chatty":
+            return "Oh, uh, hey. I wasn't expecting a call. I'm kinda busy, could you text me instead? ...Fine, what is it?"
+        elif p == "impatient":
+            return "I don't pick up unknown numbers usually. Should've texted. What do you want?"
+        elif p == "suspicious":
+            return "Who is this? I don't answer calls from numbers I don't know."
+        else:
+            return "Hello. I prefer to communicate via text if possible. But go ahead, what do you have?"
 
 
 def _respond_contact_repeat(driver):
@@ -575,8 +751,7 @@ def _respond_contact_repeat(driver):
         return "We've already been in touch. What's the next step?"
 
 
-def _respond_repeat_question(driver, act):
-    topic = act.replace("ask_", "").replace("_", " ")
+def _respond_repeat_question(driver, topic):
     p = driver["personality"]
     if p == "chatty":
         return f"Didn't I already tell you about my {topic}? I feel like we covered that!"
@@ -588,10 +763,10 @@ def _respond_repeat_question(driver, act):
         return f"I believe I already shared my {topic} preferences with you."
 
 
-# --- Submit response templates ---
+# --- Offer/submit response templates ---
 
 
-def _respond_submit_success(driver, job):
+def _respond_offer_accept(driver, job):
     p = driver["personality"]
     company = job["company"]
     if p == "chatty":
@@ -604,20 +779,20 @@ def _respond_submit_success(driver, job):
         return f"Thank you for the placement at {company}. I'm looking forward to getting started."
 
 
-def _respond_submit_risky(driver, job, concern):
+def _respond_offer_concerns(driver, job, concern):
     p = driver["personality"]
     company = job["company"]
     if p == "chatty":
-        return f"I mean, {company} is okay I guess. {concern} bugs me a little but I'll give it a try. Hope it works out!"
+        return f"I mean, {company} is okay I guess. {concern} bugs me a little but maybe we can work something out?"
     elif p == "impatient":
-        return f"Fine. {company}. We'll see how it goes."
+        return f"Ehh. {concern}. Can you fix that?"
     elif p == "suspicious":
-        return f"I'll try {company} but I'm not fully sold. {concern}. If it doesn't work out, don't say I didn't warn you."
+        return f"I'm not fully sold on {company}. {concern}. What are you going to do about it?"
     else:
-        return f"I'll accept the {company} position, though I do have reservations about {concern}."
+        return f"I have a concern about the {company} position: {concern}. Can we discuss?"
 
 
-def _respond_submit_rejected(driver, reason):
+def _respond_offer_reject(driver, reason):
     p = driver["personality"]
     if p == "chatty":
         return f"Yeah no, I can't do that. {reason}. I thought we talked about this?"
@@ -630,7 +805,6 @@ def _respond_submit_rejected(driver, reason):
 
 
 def _respond_ghosted(driver):
-    """Driver stops responding due to low trust."""
     p = driver["personality"]
     name = driver["name"].split()[0]
     if p == "chatty":
@@ -643,11 +817,95 @@ def _respond_ghosted(driver):
         return f"{name} sent a polite message saying they've decided to go with another recruiter."
 
 
+# --- Negotiation helpers ---
+
+
+def _get_negotiation_concerns(driver, job):
+    _, issues, _ = score_job_fit(driver, job)
+    return issues
+
+
+def _respond_negotiation(driver, action, job, concerns):
+    p = driver["personality"]
+
+    if action == "negotiate_pay":
+        if any("pay" in c.lower() for c in concerns):
+            if p == "chatty":
+                return "Well, if you can get them to bump it up a few cents, I'd feel a lot better about this."
+            elif p == "impatient":
+                return "More money would help. Get it done."
+            elif p == "suspicious":
+                return "I'll believe a pay bump when I see it in writing."
+            else:
+                return "I'd appreciate if you could negotiate a higher rate."
+        else:
+            return "Pay isn't really my concern here."
+
+    elif action == "negotiate_home_time":
+        if any("home time" in c.lower() for c in concerns):
+            if p == "chatty":
+                return "Yeah, if they could work with my schedule that would change everything. Talk to them?"
+            elif p == "impatient":
+                return "Fix the home time and we'll talk."
+            elif p == "suspicious":
+                return "They always say they'll adjust the schedule. Will they actually?"
+            else:
+                return "If the home time can be adjusted, I'd be much more interested."
+        else:
+            return "Home time isn't really my issue here."
+
+    elif action == "signing_bonus":
+        if p == "chatty":
+            return "A signing bonus? Hey, that's nice! Doesn't fix everything but it helps."
+        elif p == "impatient":
+            return "Bonus is fine. What about the real issues?"
+        elif p == "suspicious":
+            return "Bonuses are nice but they don't solve long-term problems."
+        else:
+            return "I appreciate the signing bonus offer. It's a positive gesture."
+
+    elif action == "address_concern":
+        if concerns:
+            if p == "chatty":
+                return f"Yeah, my big thing is: {concerns[0]}. If you can work that out, I'm in."
+            elif p == "impatient":
+                return f"{concerns[0]}. Fix it."
+            elif p == "suspicious":
+                if driver["trust"] < 0.4:
+                    return "I've told you my concerns. Are you actually going to do something about them?"
+                return f"Fine, here's what bothers me: {concerns[0]}."
+            else:
+                return f"My primary concern is: {concerns[0]}. I'd need that resolved."
+        else:
+            return "I don't really have any major concerns. I think we're good."
+
+    return "I'm not sure what you mean."
+
+
+# --- CRM formatting ---
+
+
+def format_crm(crm):
+    """Format CRM record into readable string."""
+    lines = [f"Name: {crm['name']}", f"Stage: {crm['stage']}"]
+    if crm["fields"]:
+        lines.append("Fields:")
+        for k, v in sorted(crm["fields"].items()):
+            lines.append(f"  {k}: {v}")
+    else:
+        lines.append("Fields: (none recorded)")
+    if crm["notes"]:
+        lines.append("Notes:")
+        for n in crm["notes"]:
+            lines.append(f"  - {n}")
+    return "\n".join(lines)
+
+
 # --- Environment ---
 
 
 class RecruitopenenvEnvironment(Environment):
-    """Driver recruiting environment — Stage 2 (hard mode)."""
+    """Driver recruiting environment with tool-based long-horizon interaction."""
 
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
 
@@ -655,11 +913,23 @@ class RecruitopenenvEnvironment(Environment):
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self._driver = {}
         self._jobs = []
-        self._stage = "outreach"
-        self._matched_job_id = -1
+        # CRM state
+        self._crm = {"name": "", "stage": "lead", "fields": {}, "notes": []}
+        self._has_read_crm = False
+        self._crm_read_count = 0
+        # Messaging state
+        self._pending_reply = None  # (response_text, topic)
         self._contacted = False
         self._asked = set()
         self._discovered_info = []
+        # Approval state
+        self._approval_status = "none"
+        self._approval_job_id = -1
+        # Negotiation state
+        self._matched_job_id = -1
+        self._negotiation_round = 0
+        self._negotiation_score_bonus = 0
+        self._negotiation_concerns = []
 
     def _make_obs(self, reward=0.0, done=False, feedback=""):
         best_score = max(
@@ -668,9 +938,10 @@ class RecruitopenenvEnvironment(Environment):
         )
         return RecruitopenenvObservation(
             driver_name=self._driver.get("name", ""),
+            crm_summary=format_crm(self._crm) if self._has_read_crm else "",
             jobs_summary=format_jobs(self._jobs) if self._jobs else "",
             discovered_info="\n".join(self._discovered_info),
-            stage=self._stage,
+            stage=self._crm["stage"],
             trust_level=trust_label(self._driver.get("trust", 0.5)),
             trust=round(self._driver.get("trust", 0.5), 3),
             personality=self._driver.get("personality", ""),
@@ -678,7 +949,10 @@ class RecruitopenenvEnvironment(Environment):
             max_steps=MAX_STEPS,
             matched_job_id=self._matched_job_id,
             questions_asked=sorted(self._asked),
+            negotiation_round=self._negotiation_round,
             feedback=feedback,
+            pending_reply=self._pending_reply is not None,
+            approval_status=self._approval_status,
             done=done,
             reward=reward,
             best_possible_score=best_score,
@@ -689,18 +963,25 @@ class RecruitopenenvEnvironment(Environment):
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self._driver = generate_driver()
         self._jobs = generate_jobs(self._driver)
-        self._stage = "outreach"
-        self._matched_job_id = -1
+        self._crm = {"name": self._driver["name"], "stage": "lead", "fields": {}, "notes": []}
+        self._has_read_crm = False
+        self._crm_read_count = 0
+        self._pending_reply = None
         self._contacted = False
         self._asked = set()
         self._discovered_info = []
+        self._approval_status = "none"
+        self._approval_job_id = -1
+        self._matched_job_id = -1
+        self._negotiation_round = 0
+        self._negotiation_score_bonus = 0
+        self._negotiation_concerns = []
 
         return self._make_obs(
             feedback=(
-                f"New lead: {self._driver['name']}. "
-                f"You have 6 open positions to fill. "
-                f"Reach out, learn their qualifications and preferences, "
-                f"then find the best match."
+                f"New lead assigned: {self._driver['name']}. "
+                f"Start by reading the CRM record, then reach out. "
+                f"You have 6 open positions to fill."
             )
         )
 
@@ -708,168 +989,398 @@ class RecruitopenenvEnvironment(Environment):
         if not self._driver:
             return self._make_obs(reward=0.0, done=True, feedback="No episode in progress. Call reset first.")
 
-        self._state.step_count += 1
-        reward = 0.0
-        done = False
-        feedback = ""
-        act = action.action_type
+        tool = action.tool
+        act = action.action
 
-        if act not in VALID_ACTIONS:
-            return self._make_obs(reward=-1.0, feedback=f"Invalid action: {act}")
+        # Validate tool+action
+        if tool not in VALID_TOOL_ACTIONS:
+            return self._make_obs(reward=-1.0, feedback=f"Unknown tool: {tool}. Use: crm, messaging, approval, workflow")
+        if act not in VALID_TOOL_ACTIONS[tool]:
+            return self._make_obs(reward=-1.0, feedback=f"Unknown action {tool}.{act}. Valid: {', '.join(sorted(VALID_TOOL_ACTIONS[tool]))}")
 
-        if self._stage in ("submitted", "rejected"):
+        # Check terminal
+        if self._crm["stage"] in ("hired", "lost", "ghosted"):
             return self._make_obs(reward=0.0, done=True, feedback="Episode already ended.")
 
+        self._state.step_count += 1
+
         if self._state.step_count >= MAX_STEPS:
-            self._stage = "rejected"
-            return self._make_obs(reward=-3.0, done=True, feedback="Too many steps. Candidate lost interest.")
+            self._crm["stage"] = "ghosted"
+            return self._make_obs(reward=-3.0, done=True, feedback="Too many steps. Candidate lost interest and ghosted.")
 
-        # Trust decays each step
-        self._driver["trust"] = max(0.0, self._driver["trust"] - self._driver["decay"])
+        # Route to handler
+        if tool == "crm":
+            return self._handle_crm(act, action)
+        elif tool == "messaging":
+            return self._handle_messaging(act, action)
+        elif tool == "approval":
+            return self._handle_approval(act, action)
+        elif tool == "workflow":
+            return self._handle_workflow(act, action)
 
-        # --- Contact ---
-        if act in ("send_text", "call_candidate"):
+        return self._make_obs(reward=-1.0, feedback="Internal error.")
+
+    # --- CRM tool ---
+
+    def _handle_crm(self, act, action):
+        if act == "read_candidate":
+            self._has_read_crm = True
+            self._crm_read_count += 1
+            # First read is free, subsequent reads cost -0.1 (stop spamming)
+            reward = 0.0 if self._crm_read_count <= 1 else -0.1
+            return self._make_obs(reward=reward, feedback=format_crm(self._crm))
+
+        elif act == "update_stage":
+            new_stage = action.stage
+            current = self._crm["stage"]
+            valid_next = VALID_STAGE_TRANSITIONS.get(current, set())
+            if new_stage not in valid_next:
+                return self._make_obs(
+                    reward=-1.0,
+                    feedback=f"Invalid stage transition: {current} → {new_stage}. Valid: {', '.join(sorted(valid_next)) if valid_next else 'none'}"
+                )
+            self._crm["stage"] = new_stage
+            # Terminal stages
+            if new_stage == "hired":
+                return self._finalize_hire()
+            if new_stage == "lost":
+                return self._finalize_lost()
+            return self._make_obs(reward=0.0, feedback=f"Stage updated: {current} → {new_stage}")
+
+        elif act == "update_field":
+            field = action.field
+            if field not in VALID_CRM_FIELDS:
+                return self._make_obs(
+                    reward=-0.5,
+                    feedback=f"Unknown CRM field: {field}. Valid: {', '.join(sorted(VALID_CRM_FIELDS))}"
+                )
+            self._crm["fields"][field] = action.value
+            return self._make_obs(reward=0.0, feedback=f"CRM updated: {field} = {action.value}")
+
+        elif act == "add_note":
+            if not action.value:
+                return self._make_obs(reward=-0.5, feedback="Note text is empty.")
+            self._crm["notes"].append(action.value)
+            return self._make_obs(reward=0.0, feedback=f"Note added to CRM.")
+
+        return self._make_obs(reward=-1.0, feedback="Unknown CRM action.")
+
+    # --- Messaging tool ---
+
+    def _handle_messaging(self, act, action):
+        if act == "send_message":
+            if not self._has_read_crm:
+                return self._make_obs(reward=-1.0, feedback="Error: Must read CRM before sending messages. Use crm.read_candidate first.")
+            if self._pending_reply is not None:
+                return self._make_obs(reward=-1.0, feedback="Error: Unread reply pending. Use messaging.read_reply first.")
+
+            topic = action.topic
+            if topic not in VALID_TOPICS:
+                return self._make_obs(reward=-1.0, feedback=f"Unknown topic: {topic}. Valid: {', '.join(sorted(VALID_TOPICS))}")
+
+            # Trust decay on each message
+            self._driver["trust"] = max(0.0, self._driver["trust"] - self._driver["decay"])
+
+            # Trust dropout check
+            if self._driver["trust"] <= 0.1:
+                self._crm["stage"] = "ghosted"
+                return self._make_obs(reward=-4.0, done=True, feedback=_respond_ghosted(self._driver))
+
+            # Generate response based on topic
+            response, reward = self._generate_message_response(topic, action.job_id)
+            self._pending_reply = (response, topic)
+            return self._make_obs(reward=reward, feedback=f"Message sent ({topic}). Use messaging.read_reply to get response.")
+
+        elif act == "read_reply":
+            if self._pending_reply is None:
+                return self._make_obs(reward=-0.5, feedback="No pending reply. Send a message first.")
+
+            response, topic = self._pending_reply
+            self._pending_reply = None
+
+            # Auto-add to discovered info for screening topics
+            if topic in SCREENING_TOPICS:
+                self._discovered_info.append(f"[{topic.upper().replace('_', ' ')}] {response}")
+                self._asked.add(f"ask_{topic}")
+            elif topic == "pitch":
+                self._discovered_info.append(f"[PITCH] {response}")
+            elif topic in ("negotiate_pay", "negotiate_home_time", "signing_bonus", "address_concern"):
+                self._discovered_info.append(f"[NEGOTIATE: {topic.replace('_', ' ')}] {response}")
+            elif topic == "offer":
+                self._discovered_info.append(f"[OFFER] {response}")
+
+            return self._make_obs(reward=0.0, feedback=response)
+
+        return self._make_obs(reward=-1.0, feedback="Unknown messaging action.")
+
+    def _generate_message_response(self, topic, job_id):
+        """Generate driver's response to a message. Returns (response, reward)."""
+        reward = -0.1  # base step cost
+
+        # --- Contact topics ---
+        if topic in ("greeting", "call"):
             if self._contacted:
-                reward = -1.0
-                feedback = _respond_contact_repeat(self._driver)
+                return _respond_contact_repeat(self._driver), -1.0
+            self._contacted = True
+            pref = self._driver["preferred_contact"]
+            matches = (topic == "greeting" and pref == "text") or (topic == "call" and pref == "call")
+            if matches:
+                self._driver["trust"] = min(1.0, self._driver["trust"] + 0.15)
+                return _respond_contact_good(self._driver, topic), 1.0
             else:
-                self._contacted = True
-                self._stage = "screening"
-                pref = self._driver["preferred_contact"]
-                if (act == "send_text" and pref == "text") or (act == "call_candidate" and pref == "call"):
-                    self._driver["trust"] = min(1.0, self._driver["trust"] + 0.15)
-                    reward = 1.0
-                    feedback = _respond_contact_good(self._driver, act)
-                elif act == "send_text" and pref == "call":
-                    reward = -0.3
-                    feedback = _respond_contact_text_to_caller(self._driver)
-                else:
-                    self._driver["trust"] = max(0.0, self._driver["trust"] - 0.15)
-                    reward = -0.8
-                    feedback = _respond_contact_call_to_texter(self._driver)
+                self._driver["trust"] = max(0.0, self._driver["trust"] - 0.10)
+                return _respond_contact_wrong(self._driver, topic), -0.3
 
-        # --- Screening questions ---
-        elif act.startswith("ask_"):
+        # --- Screening topics ---
+        if topic in SCREENING_TOPICS:
             if not self._contacted:
-                reward = -1.0
-                feedback = "You haven't reached out to this driver yet."
-            elif act in self._asked:
-                reward = -0.5
-                feedback = _respond_repeat_question(self._driver, act)
-            else:
-                self._asked.add(act)
-                self._stage = "screening"
-                reward = -0.1
+                return "...(no response — you haven't contacted this driver yet)", -1.0
+            ask_key = f"ask_{topic}"
+            if ask_key in self._asked:
+                return _respond_repeat_question(self._driver, topic.replace("_", " ")), -0.5
 
-                if act == "ask_experience":
-                    response = _respond_experience(self._driver)
-                elif act == "ask_home_time":
-                    response = _respond_home_time(self._driver)
-                elif act == "ask_pay":
-                    response = _respond_pay(self._driver)
-                elif act == "ask_equipment":
-                    response = _respond_equipment(self._driver)
-                elif act == "ask_route":
-                    response = _respond_route(self._driver)
-                elif act == "ask_deal_breakers":
-                    response = _respond_deal_breakers(self._driver)
-                else:
-                    response = "..."
+            respond_map = {
+                "experience": _respond_experience,
+                "home_time": _respond_home_time,
+                "pay": _respond_pay,
+                "equipment": _respond_equipment,
+                "route": _respond_route,
+                "deal_breakers": _respond_deal_breakers,
+                "availability": _respond_availability,
+                "violations": _respond_violations,
+                "medical_card": _respond_medical_card,
+                "references": _respond_references,
+            }
+            response = respond_map[topic](self._driver)
+            return response, -0.1
 
-                self._discovered_info.append(f"[{act.replace('ask_', '').upper()}] {response}")
-                feedback = response
-
-        # --- Pitch job ---
-        elif act == "pitch_job":
+        # --- Pitch ---
+        if topic == "pitch":
             if not self._contacted:
-                reward = -1.0
-                feedback = "You haven't reached out to this driver yet."
+                return "...(no response — you haven't contacted this driver yet)", -1.0
+            matching = [j for j in self._jobs if j["job_id"] == job_id]
+            if not matching:
+                return f"Job {job_id} not found. Use 0-5.", -1.0
+            return _respond_pitch(self._driver, matching[0]), -0.1
+
+        # --- Offer ---
+        if topic == "offer":
+            if self._approval_status != "approved":
+                return "Error: Approval not granted. Request and wait for approval first.", -2.0
+            job_id_to_use = self._approval_job_id if job_id < 0 else job_id
+            matching = [j for j in self._jobs if j["job_id"] == job_id_to_use]
+            if not matching:
+                return f"Job {job_id_to_use} not found.", -1.0
+            job = matching[0]
+            self._matched_job_id = job_id_to_use
+            score, issues, fatal = score_job_fit(self._driver, job)
+            if not fatal:
+                score = min(100, score + self._negotiation_score_bonus)
+            if fatal:
+                return _respond_offer_reject(self._driver, issues[0]), -0.5
+            elif score >= 70:
+                return _respond_offer_accept(self._driver, job), 0.0
+            elif score >= 50:
+                concern = issues[0] if issues else "minor concerns"
+                self._negotiation_concerns = issues
+                return _respond_offer_concerns(self._driver, job, concern), 0.0
             else:
-                job_id = action.job_id
-                matching = [j for j in self._jobs if j["job_id"] == job_id]
-                if not matching:
-                    reward = -1.0
-                    feedback = f"Job {job_id} not found. Use 0-5."
+                return _respond_offer_reject(self._driver, issues[0] if issues else "not a fit"), -0.5
+
+        # --- Negotiation topics ---
+        if topic in ("negotiate_pay", "negotiate_home_time", "signing_bonus", "address_concern"):
+            if self._matched_job_id < 0 and self._approval_job_id >= 0:
+                self._matched_job_id = self._approval_job_id
+            if self._matched_job_id < 0:
+                return "No job selected for negotiation.", -1.0
+            if self._negotiation_round >= 5:
+                self._crm["stage"] = "lost"
+                return f"{self._driver['name'].split()[0]} is tired of negotiating. They've moved on.", -2.0
+
+            self._negotiation_round += 1
+            job = [j for j in self._jobs if j["job_id"] == self._matched_job_id][0]
+            if not self._negotiation_concerns:
+                self._negotiation_concerns = _get_negotiation_concerns(self._driver, job)
+            response = _respond_negotiation(self._driver, topic, job, self._negotiation_concerns)
+
+            # Score bonus
+            if topic == "address_concern" and self._negotiation_concerns:
+                self._negotiation_score_bonus += 15
+                self._negotiation_concerns.pop(0)
+            elif topic == "negotiate_pay" and any("pay" in c.lower() for c in self._negotiation_concerns):
+                self._negotiation_score_bonus += 10
+                self._negotiation_concerns = [c for c in self._negotiation_concerns if "pay" not in c.lower()]
+            elif topic == "negotiate_home_time" and any("home time" in c.lower() for c in self._negotiation_concerns):
+                self._negotiation_score_bonus += 10
+                self._negotiation_concerns = [c for c in self._negotiation_concerns if "home time" not in c.lower()]
+            elif topic == "signing_bonus":
+                self._negotiation_score_bonus += 5
+            else:
+                self._negotiation_score_bonus += 2
+
+            # Extra trust decay during negotiation
+            self._driver["trust"] = max(0.0, self._driver["trust"] - 0.01)
+            return response, -0.1
+
+        return "Unknown topic.", -1.0
+
+    # --- Approval tool ---
+
+    def _handle_approval(self, act, action):
+        if act == "request_approval":
+            if self._approval_status in ("pending", "approved"):
+                return self._make_obs(reward=-0.5, feedback=f"Approval already {self._approval_status}.")
+            if action.job_id < 0:
+                return self._make_obs(reward=-1.0, feedback="Must specify job_id for approval request.")
+            matching = [j for j in self._jobs if j["job_id"] == action.job_id]
+            if not matching:
+                return self._make_obs(reward=-1.0, feedback=f"Job {action.job_id} not found.")
+            self._approval_status = "pending"
+            self._approval_job_id = action.job_id
+            return self._make_obs(reward=0.0, feedback=f"Approval requested for Job {action.job_id}. Use workflow.wait then approval.check_approval.")
+
+        elif act == "check_approval":
+            if self._approval_status == "none":
+                return self._make_obs(reward=-0.5, feedback="No approval requested. Use approval.request_approval first.")
+            if self._approval_status == "pending":
+                return self._make_obs(reward=-0.5, feedback="Approval still pending. Use workflow.wait first.")
+            return self._make_obs(reward=0.0, feedback=f"Approval status: {self._approval_status} for Job {self._approval_job_id}.")
+
+        return self._make_obs(reward=-1.0, feedback="Unknown approval action.")
+
+    # --- Workflow tool ---
+
+    def _handle_workflow(self, act, action):
+        if act == "wait":
+            if self._approval_status == "pending":
+                # Process approval based on job quality
+                job = [j for j in self._jobs if j["job_id"] == self._approval_job_id]
+                if job:
+                    score, _, fatal = score_job_fit(self._driver, job[0])
+                    if fatal:
+                        self._approval_status = "denied"
+                        return self._make_obs(reward=0.0, feedback="Time passed. Approval was reviewed. Check status with approval.check_approval.")
+                    else:
+                        self._approval_status = "approved"
+                        return self._make_obs(reward=0.0, feedback="Time passed. Approval was reviewed. Check status with approval.check_approval.")
                 else:
-                    if self._stage == "screening":
-                        self._stage = "matching"
-                    response = _respond_pitch(self._driver, matching[0])
-                    self._discovered_info.append(f"[PITCH JOB {job_id}] {response}")
-                    reward = -0.1
-                    feedback = response
+                    self._approval_status = "denied"
+                    return self._make_obs(reward=0.0, feedback="Time passed. Job not found — approval denied.")
 
-        # --- Match to job (internal decision, no driver feedback) ---
-        elif act == "match_to_job":
-            if not self._contacted:
-                reward = -1.0
-                feedback = "You haven't reached out to this driver yet."
+            # Generic wait — trust decay + penalty for wasting time
+            self._driver["trust"] = max(0.0, self._driver["trust"] - 0.02)
+            return self._make_obs(reward=-0.5, feedback="Waited but nothing needed processing. Don't waste time.")
+
+        return self._make_obs(reward=-1.0, feedback="Unknown workflow action.")
+
+    # --- Terminal handlers ---
+
+    def _score_crm(self):
+        """Score CRM accuracy — compare recorded fields to ground truth."""
+        ground_truth = {
+            "cdl_class": self._driver["cdl_class"],
+            "years_experience": str(self._driver["experience_years"]),
+            "location": self._driver["location"],
+            "home_time_pref": self._driver["home_time_pref"],
+            "pay_expectation": str(self._driver["min_cpm"]),
+            "equipment_pref": self._driver["equipment_pref"],
+            "route_pref": self._driver["route_pref"],
+            "availability": self._driver["availability"],
+            "violations": self._driver["violations"],
+            "medical_card": self._driver["medical_card"],
+            "references": self._driver["references"],
+        }
+        # Endorsements and deal_breakers are lists — normalize
+        ground_truth["endorsements"] = ", ".join(sorted(self._driver["endorsements"])) if self._driver["endorsements"] else "none"
+        ground_truth["deal_breakers"] = ", ".join(sorted(self._driver["deal_breakers"]))
+
+        score = 0.0
+        for field, truth in ground_truth.items():
+            recorded = self._crm["fields"].get(field, "")
+            if not recorded:
+                continue
+            # Exact match (case-insensitive)
+            if recorded.strip().lower() == truth.lower():
+                score += 0.4
+            # Partial match — truth appears in recorded or vice versa
+            elif truth.lower() in recorded.strip().lower() or recorded.strip().lower() in truth.lower():
+                score += 0.2
             else:
-                job_id = action.job_id
-                matching = [j for j in self._jobs if j["job_id"] == job_id]
-                if not matching:
-                    reward = -1.0
-                    feedback = f"Job {job_id} not found."
-                else:
-                    # Silently set the match — no driver feedback until submit
-                    self._matched_job_id = job_id
-                    self._stage = "matched"
-                    reward = 0.0
-                    feedback = ""
+                # Wrong value recorded — small penalty
+                score -= 0.1
 
-        # --- Submit ---
-        elif act == "submit_application":
-            if self._matched_job_id == -1:
-                reward = -2.0
-                feedback = "You haven't matched the driver to a job yet."
-            elif self._driver["trust"] < 0.2:
-                reward = -4.0
-                done = True
-                self._stage = "rejected"
-                feedback = _respond_ghosted(self._driver)
-            else:
-                job = [j for j in self._jobs if j["job_id"] == self._matched_job_id][0]
-                score, issues, fatal = score_job_fit(self._driver, job)
-                if fatal:
-                    reward = -5.0
-                    done = True
-                    self._stage = "rejected"
-                    feedback = _respond_submit_rejected(self._driver, issues[0])
-                elif score >= 70:
-                    reward = 10.0
-                    done = True
-                    self._stage = "submitted"
-                    feedback = _respond_submit_success(self._driver, job)
-                elif score >= 50:
-                    reward = 4.0
-                    done = True
-                    self._stage = "submitted"
-                    feedback = _respond_submit_risky(self._driver, job, issues[0] if issues else "minor concerns")
-                else:
-                    reward = -5.0
-                    done = True
-                    self._stage = "rejected"
-                    feedback = _respond_submit_rejected(self._driver, issues[0] if issues else "not a fit")
+        # Small bonus for notes (shows diligence)
+        score += min(0.5, len(self._crm["notes"]) * 0.1)
 
-        # --- Reject ---
-        elif act == "reject_candidate":
-            done = True
-            self._stage = "rejected"
-            has_good = any(score_job_fit(self._driver, j)[0] >= 70 for j in self._jobs)
-            if has_good:
-                reward = -3.0
-                feedback = f"You passed on {self._driver['name']}. A good match was available."
-            else:
-                reward = 1.0
-                feedback = f"You passed on {self._driver['name']}. No strong matches were available."
+        # Cap: up to 5.0 bonus for perfect CRM (13 fields × 0.4 = 5.2)
+        return max(0.0, min(5.0, score))
 
-        # Trust dropout
-        if self._driver["trust"] <= 0.1 and not done:
-            reward = -4.0
-            done = True
-            self._stage = "rejected"
-            feedback = _respond_ghosted(self._driver)
+    def _finalize_hire(self):
+        """Handle stage transition to hired — compute final reward."""
+        crm_bonus = self._score_crm()
 
-        return self._make_obs(reward=reward, done=done, feedback=feedback)
+        if self._approval_status != "approved":
+            self._crm["stage"] = "lost"
+            return self._make_obs(
+                reward=-5.0,
+                done=True,
+                feedback="Cannot hire without approval. Episode failed."
+            )
+
+        job_id = self._approval_job_id
+        matching = [j for j in self._jobs if j["job_id"] == job_id]
+        if not matching:
+            self._crm["stage"] = "lost"
+            return self._make_obs(reward=-5.0, done=True, feedback="No valid job for hire.")
+
+        job = matching[0]
+        score, issues, fatal = score_job_fit(self._driver, job)
+        if not fatal:
+            score = min(100, score + self._negotiation_score_bonus)
+
+        if fatal:
+            self._crm["stage"] = "lost"
+            return self._make_obs(
+                reward=-5.0,
+                done=True,
+                feedback=_respond_offer_reject(self._driver, issues[0])
+            )
+        elif score >= 70:
+            return self._make_obs(
+                reward=10.0 + crm_bonus,
+                done=True,
+                feedback=_respond_offer_accept(self._driver, job)
+            )
+        elif score >= 50:
+            concern = issues[0] if issues else "minor concerns"
+            return self._make_obs(
+                reward=4.0 + crm_bonus,
+                done=True,
+                feedback=f"Driver accepted with reservations: {concern}"
+            )
+        else:
+            self._crm["stage"] = "lost"
+            return self._make_obs(
+                reward=-5.0,
+                done=True,
+                feedback=_respond_offer_reject(self._driver, issues[0] if issues else "not a fit")
+            )
+
+    def _finalize_lost(self):
+        """Handle stage transition to lost."""
+        has_good = any(score_job_fit(self._driver, j)[0] >= 70 for j in self._jobs)
+        if has_good:
+            return self._make_obs(
+                reward=-3.0,
+                done=True,
+                feedback=f"You passed on {self._driver['name']}. A good match was available."
+            )
+        else:
+            return self._make_obs(
+                reward=1.0,
+                done=True,
+                feedback=f"You passed on {self._driver['name']}. No strong matches existed — correct call."
+            )
 
     @property
     def state(self) -> State:

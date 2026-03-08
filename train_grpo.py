@@ -2,7 +2,7 @@
 GRPO training script for the Driver Recruit Environment.
 
 Uses TRL's GRPOTrainer with rollout_func for multi-turn episodes.
-The model controls EVERY action in the episode, not just the first one.
+The model controls EVERY action in the episode via tool calls.
 
 Usage:
     python train_grpo.py --model Qwen/Qwen2.5-3B-Instruct --use-qlora
@@ -20,42 +20,77 @@ from trl import GRPOConfig, GRPOTrainer
 
 # --- Prompt templates ---
 
-SYSTEM_PROMPT = """You are a truck driver recruiter. You only know the driver's name. You must discover their qualifications and preferences through screening questions, then match them to the best job.
+SYSTEM_PROMPT = """You are a truck driver recruiter using a CRM system. You only know the driver's name. You must discover their qualifications through conversation, record info in the CRM, get approval, and hire them.
 
-Valid actions:
-- send_text: Send a text message to the candidate
-- call_candidate: Call the candidate on the phone
-- ask_experience: Ask about CDL class, years of experience, endorsements, location
-- ask_home_time: Ask about home time preference
-- ask_pay: Ask about pay expectations
-- ask_equipment: Ask about equipment preference
-- ask_route: Ask about route preference
-- ask_deal_breakers: Ask what they absolutely won't do
-- pitch_job <job_id>: Describe a job and get their reaction (0-5)
-- match_to_job <job_id>: Select a job for the candidate (0-5)
-- submit_application: Submit the application
-- reject_candidate: No good match exists
+You have 4 tools:
 
-Respond with ONLY the action in JSON format:
-{"action_type": "send_text"}
-{"action_type": "ask_experience"}
-{"action_type": "pitch_job", "job_id": 2}
-{"action_type": "match_to_job", "job_id": 0}"""
+## crm
+- read_candidate: Read the current CRM record
+- update_stage: Advance pipeline (contacted → interested → approval_pending → offer_sent → hired)
+- update_field: Record info (field + value)
+- add_note: Add a free-text note
+
+## messaging
+- send_message: Send a message (topic: greeting, call, experience, home_time, pay, equipment, route, deal_breakers, availability, violations, medical_card, references, pitch, offer, negotiate_pay, negotiate_home_time, signing_bonus, address_concern)
+- read_reply: Read the driver's response
+
+## approval
+- request_approval: Request approval for a job (needs job_id)
+- check_approval: Check approval status
+
+## workflow
+- wait: Advance time (needed for approval processing)
+
+## Rules
+- Must read CRM before messaging
+- Must read_reply before sending another message
+- Must request_approval and wait before sending offer
+- Must follow stage order: lead → contacted → interested → approval_pending → offer_sent → hired
+- Record important info in CRM with update_field
+- Too many messages hurt trust
+
+## Workflow
+1. crm.read_candidate
+2. messaging.send_message (greeting/call) → read_reply → update_stage(contacted)
+3. messaging.send_message (screening topics) → read_reply → crm.update_field
+4. crm.update_stage(interested)
+5. approval.request_approval → workflow.wait → approval.check_approval
+6. crm.update_stage(approval_pending)
+7. messaging.send_message(offer) → read_reply
+8. crm.update_stage(offer_sent) → crm.update_stage(hired)
+
+Respond with ONLY JSON:
+{"tool": "crm", "action": "read_candidate"}
+{"tool": "messaging", "action": "send_message", "topic": "experience"}
+{"tool": "messaging", "action": "read_reply"}
+{"tool": "crm", "action": "update_field", "field": "cdl_class", "value": "A"}
+{"tool": "crm", "action": "update_stage", "stage": "contacted"}
+{"tool": "approval", "action": "request_approval", "job_id": 2}
+{"tool": "workflow", "action": "wait"}
+{"tool": "approval", "action": "check_approval"}
+{"tool": "messaging", "action": "send_message", "topic": "offer", "job_id": 2}
+{"tool": "crm", "action": "update_stage", "stage": "hired"}"""
 
 
 def format_observation(obs):
     """Format observation into a user prompt for the LLM."""
     parts = [f"Driver: {obs.driver_name}"]
+    if obs.crm_summary:
+        parts.append(f"CRM:\n{obs.crm_summary}")
     if obs.jobs_summary:
         parts.append(f"Jobs:\n{obs.jobs_summary}")
     if obs.discovered_info:
-        parts.append(f"Discovered info:\n{obs.discovered_info}")
-    parts.append(
-        f"Stage: {obs.stage} | Trust: {obs.trust_level} | "
-        f"Step: {obs.steps_taken}/{obs.max_steps} | Matched: {obs.matched_job_id}"
-    )
+        parts.append(f"Discovered:\n{obs.discovered_info}")
+    status = f"Stage: {obs.stage} | Trust: {obs.trust_level} | Step: {obs.steps_taken}/{obs.max_steps}"
+    if obs.pending_reply:
+        status += " | PENDING REPLY"
+    if obs.approval_status != "none":
+        status += f" | Approval: {obs.approval_status}"
+    if obs.negotiation_round > 0:
+        status += f" | Negotiation: {obs.negotiation_round}/5"
+    parts.append(status)
     if obs.feedback:
-        parts.append(f"Feedback: {obs.feedback}")
+        parts.append(f"Result: {obs.feedback}")
     return "\n".join(parts)
 
 
@@ -78,34 +113,32 @@ def parse_action(text):
         data = json.loads(text)
         if isinstance(data, list):
             data = data[0] if data else {}
-        if isinstance(data, dict) and "action_type" in data:
+        if isinstance(data, dict) and "tool" in data and "action" in data:
             return RecruitopenenvAction(
-                action_type=data["action_type"],
+                tool=data["tool"],
+                action=data["action"],
+                topic=data.get("topic", ""),
                 job_id=data.get("job_id", -1),
+                stage=data.get("stage", ""),
+                field=data.get("field", ""),
+                value=data.get("value", ""),
             )
     except (json.JSONDecodeError, KeyError, IndexError):
         pass
 
-    # Fallback: find action name in text
+    # Fallback: try to detect intent
     text_lower = text.lower()
-    all_actions = [
-        "submit_application", "reject_candidate",
-        "ask_experience", "ask_home_time", "ask_pay",
-        "ask_equipment", "ask_route", "ask_deal_breakers",
-        "pitch_job", "match_to_job",
-        "send_text", "call_candidate",
-    ]
-    for act in all_actions:
-        if act in text_lower:
-            job_id = -1
-            if act in ("match_to_job", "pitch_job"):
-                for c in text:
-                    if c in "012345":
-                        job_id = int(c)
-                        break
-            return RecruitopenenvAction(action_type=act, job_id=job_id)
+    if "read_candidate" in text_lower:
+        return RecruitopenenvAction(tool="crm", action="read_candidate")
+    if "read_reply" in text_lower:
+        return RecruitopenenvAction(tool="messaging", action="read_reply")
+    if "check_approval" in text_lower:
+        return RecruitopenenvAction(tool="approval", action="check_approval")
+    if "wait" in text_lower:
+        return RecruitopenenvAction(tool="workflow", action="wait")
 
-    return RecruitopenenvAction(action_type="ask_experience")
+    # Default to reading CRM
+    return RecruitopenenvAction(tool="crm", action="read_candidate")
 
 
 # --- Multi-turn rollout ---
@@ -114,17 +147,7 @@ ENV_URL = "http://localhost:8001"
 
 
 def rollout_func(prompts, trainer):
-    """Multi-turn rollout: model controls every action in the episode.
-
-    For each prompt, we:
-    1. Reset the env to get initial observation
-    2. Generate an action from the model
-    3. Step the env, append observation, generate next action
-    4. Repeat until done or max steps
-    5. Concatenate all actions into one "completion" for GRPO
-
-    Returns dict with prompt_ids, completion_ids, logprobs, and rewards.
-    """
+    """Multi-turn rollout: model controls every action in the episode."""
     tokenizer = trainer.processing_class
     model = trainer.model
     device = model.device
@@ -137,16 +160,13 @@ def rollout_func(prompts, trainer):
     env = RecruitopenenvEnv(base_url=ENV_URL)
 
     for prompt_text in prompts:
-        # Tokenize the initial prompt
         prompt_ids = tokenizer.encode(prompt_text, return_tensors="pt")[0]
         all_prompt_ids.append(prompt_ids)
 
-        # Run a full episode
         result = env.reset()
         obs = result.observation
         total_reward = 0.0
 
-        # Build conversation as we go
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": format_observation(obs)},
@@ -156,23 +176,21 @@ def rollout_func(prompts, trainer):
         episode_logprobs = []
         steps = 0
 
-        while not result.done and steps < 15:
-            # Build current prompt from conversation
+        while not result.done and steps < 75:
             current_prompt = tokenizer.apply_chat_template(
                 messages, add_generation_prompt=True, tokenize=False
             )
             inputs = tokenizer(
                 current_prompt, return_tensors="pt",
-                truncation=True, max_length=2048
+                truncation=True, max_length=4096
             )
             input_ids = inputs["input_ids"].to(device)
 
-            # Generate one action
             with torch.no_grad():
                 outputs = model.generate(
                     input_ids,
                     attention_mask=inputs["attention_mask"].to(device),
-                    max_new_tokens=64,
+                    max_new_tokens=96,
                     temperature=1.2,
                     do_sample=True,
                     pad_token_id=tokenizer.eos_token_id,
@@ -180,10 +198,8 @@ def rollout_func(prompts, trainer):
                     output_logits=True,
                 )
 
-            # Extract new tokens and their logprobs
             new_token_ids = outputs.sequences[0][input_ids.shape[1]:]
 
-            # Compute logprobs from logits
             if hasattr(outputs, 'logits') and outputs.logits:
                 step_logprobs = []
                 for i, logits in enumerate(outputs.logits):
@@ -197,7 +213,6 @@ def rollout_func(prompts, trainer):
 
             episode_completion_ids.extend(new_token_ids.tolist())
 
-            # Decode and parse action
             response = tokenizer.decode(new_token_ids, skip_special_tokens=True)
             messages.append({"role": "assistant", "content": response})
 
@@ -207,16 +222,13 @@ def rollout_func(prompts, trainer):
             total_reward += result.reward
             steps += 1
 
-            # Add next observation to conversation
             if not result.done:
                 messages.append({"role": "user", "content": format_observation(obs)})
 
-        # Convert to tensors
         if episode_completion_ids:
             all_completion_ids.append(torch.tensor(episode_completion_ids))
             all_logprobs.append(episode_logprobs)
         else:
-            # Empty episode fallback
             all_completion_ids.append(torch.tensor([tokenizer.eos_token_id]))
             all_logprobs.append([0.0])
 
@@ -238,7 +250,6 @@ def reward_total(completions, env_reward=None, **kwargs):
     """Use the total episode reward computed during rollout."""
     if env_reward is not None:
         return env_reward
-    # Fallback if env_reward not passed
     return [0.0] * len(completions)
 
 
@@ -262,11 +273,8 @@ def main():
     global ENV_URL
     ENV_URL = args.env_url
 
-    # Tokenizer
     tokenizer = AutoTokenizer.from_pretrained(args.model)
 
-    # Build the dataset — just needs prompt strings
-    # Each prompt is a different recruiting scenario
     prompts = []
     env = RecruitopenenvEnv(base_url=args.env_url)
     for i in range(args.num_episodes):
@@ -285,7 +293,6 @@ def main():
 
     dataset = Dataset.from_dict({"prompt": prompts})
 
-    # QLoRA config
     peft_config = None
     model_kwargs = {}
     if args.use_qlora:
@@ -305,13 +312,12 @@ def main():
         )
         print(f"Using QLoRA: r={args.lora_r}, alpha={args.lora_alpha}, 4-bit")
 
-    # GRPO config
     grpo_config = GRPOConfig(
         output_dir=args.output_dir,
         use_vllm=False,
         num_train_epochs=args.epochs,
         num_generations=args.num_generations,
-        max_completion_length=512,  # Longer for multi-turn
+        max_completion_length=512,
         per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=4,
         gradient_checkpointing=True,
@@ -320,11 +326,10 @@ def main():
         save_steps=50,
         bf16=True,
         report_to="wandb",
-        run_name="recruit-grpo-multiturn",
+        run_name="recruit-grpo-tools",
         model_init_kwargs=model_kwargs if model_kwargs else None,
     )
 
-    # Trainer with rollout_func — model controls every turn
     trainer_kwargs = dict(
         model=args.model,
         processing_class=tokenizer,
@@ -339,7 +344,7 @@ def main():
     trainer = GRPOTrainer(**trainer_kwargs)
 
     print("=" * 50)
-    print(f"Training {args.model} (MULTI-TURN rollout)")
+    print(f"Training {args.model} (TOOL-BASED MULTI-TURN)")
     print(f"Environment: {args.env_url}")
     print(f"QLoRA: {args.use_qlora}")
     print(f"Episodes: {args.num_episodes}")

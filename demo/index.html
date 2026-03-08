@@ -154,6 +154,11 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .placeable-tag{font-size:11px;font-weight:500;padding:2px 8px;border-radius:4px;font-family:'IBM Plex Mono',monospace}
 .pt-yes{background:rgba(34,197,94,.1);color:var(--green)}
 .pt-no{background:rgba(239,68,68,.1);color:var(--red)}
+
+/* Hidden info toggle */
+.hidden-info.off{display:none}
+.toggle-hidden{background:var(--s2);border:1px solid var(--b1);color:var(--t3);padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer;margin-left:12px}
+.toggle-hidden:hover{color:var(--t2);border-color:var(--b2)}
 </style>
 </head>
 <body>
@@ -212,7 +217,8 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
         <div class="trust-track"><div class="trust-fill" id="tFill"></div></div>
         <div class="trust-num"><span class="mono" id="tVal">0.50</span><span class="mono delta" id="tDelta"></span></div>
       </div>
-      <span class="placeable-tag" id="uiPlace"></span>
+      <span class="placeable-tag hidden-info off" id="uiPlace"></span>
+      <button class="toggle-hidden" onclick="toggleHidden()">Show hidden</button>
     </div>
   </div>
 
@@ -240,10 +246,18 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
           <button class="act" onclick="doAction('ask_equipment')">Equipment</button>
           <button class="act" onclick="doAction('ask_route')">Route</button>
           <button class="act" onclick="doAction('ask_deal_breakers')">Deal breakers</button>
+          <button class="act" onclick="doAction('ask_availability')">Availability</button>
+          <button class="act" onclick="doAction('ask_violations')">Violations</button>
+          <button class="act" onclick="doAction('ask_medical_card')">Medical card</button>
+          <button class="act" onclick="doAction('ask_references')">References</button>
           <div class="act-sep"></div>
           <button class="act" onclick="pickJob('pitch_job')">Pitch</button>
           <button class="act" onclick="pickJob('match_to_job')">Match</button>
           <div class="act-sep"></div>
+          <button class="act" onclick="doAction('negotiate_pay')" id="btnNegPay" style="display:none">Negotiate pay</button>
+          <button class="act" onclick="doAction('negotiate_home_time')" id="btnNegHome" style="display:none">Negotiate home time</button>
+          <button class="act" onclick="doAction('offer_signing_bonus')" id="btnNegBonus" style="display:none">Signing bonus</button>
+          <button class="act" onclick="doAction('address_concern')" id="btnNegConcern" style="display:none">Address concern</button>
           <button class="act act-go" onclick="doAction('submit_application')">Submit</button>
           <button class="act act-no" onclick="doAction('reject_candidate')">Reject</button>
         </div>
@@ -283,6 +297,14 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 
 <script>
 let ENV='',WS=null,S={obs:null,rew:0,pt:0,done:false,wp:true,jobs:[]};
+let showHidden=false;
+function toggleHidden(){
+  showHidden=!showHidden;
+  document.querySelectorAll('.hidden-info').forEach(el=>{
+    el.classList.toggle('off',!showHidden);
+  });
+  document.querySelector('.toggle-hidden').textContent=showHidden?'Hide hidden':'Show hidden';
+}
 let pendingResolve=null,pendingAct=null,pendingJid=null;
 
 function wsUrl(){
@@ -355,7 +377,7 @@ function render(o,rw,act,jid){
   document.getElementById('dName').textContent=o.driver_name;
   document.getElementById('av').textContent=o.driver_name?o.driver_name[0]:'?';
   const pe=document.getElementById('dPers');
-  pe.textContent=o.personality; pe.className='pill pill-'+o.personality;
+  pe.textContent=o.personality; pe.className='pill pill-'+o.personality+' hidden-info'+(showHidden?'':' off');
 
   document.getElementById('uiStage').textContent=o.stage;
   document.getElementById('uiStep').textContent=o.steps_taken;
@@ -363,12 +385,14 @@ function render(o,rw,act,jid){
   const re=document.getElementById('uiRew');
   re.textContent=(S.rew>=0?'+':'')+S.rew.toFixed(1);
   re.style.color=S.rew>=0?'var(--green)':'var(--red)';
+  re.parentElement.className='ts hidden-info'+(showHidden?'':' off');
 
   // trust
   const tf=document.getElementById('tFill');
   tf.style.width=(o.trust*100)+'%';
   tf.style.background=o.trust>=.5?'var(--green)':o.trust>=.2?'var(--amber)':'var(--red)';
   document.getElementById('tVal').textContent=o.trust.toFixed(3);
+  document.getElementById('tVal').parentElement.className='trust-num hidden-info'+(showHidden?'':' off');
   const dd=document.getElementById('tDelta'),dt=o.trust-S.pt;
   if(act){
     if(dt>0){dd.textContent='+'+dt.toFixed(3);dd.className='mono delta delta-up'}
@@ -377,8 +401,8 @@ function render(o,rw,act,jid){
   }else{dd.textContent='';dd.className='mono delta'}
 
   const pl=document.getElementById('uiPlace');
-  if(o.was_placeable){pl.textContent='FIT '+o.best_possible_score;pl.className='placeable-tag pt-yes'}
-  else{pl.textContent='NO FIT '+o.best_possible_score;pl.className='placeable-tag pt-no'}
+  if(o.was_placeable){pl.textContent='FIT '+o.best_possible_score;pl.className='placeable-tag pt-yes hidden-info'+(showHidden?'':' off')}
+  else{pl.textContent='NO FIT '+o.best_possible_score;pl.className='placeable-tag pt-no hidden-info'+(showHidden?'':' off')}
 
   // jobs
   if(o.jobs_summary){
@@ -406,12 +430,18 @@ function render(o,rw,act,jid){
   }
 
   // questions
-  const allQ=['experience','home_time','pay','equipment','route','deal_breakers'];
+  const allQ=['experience','home_time','pay','equipment','route','deal_breakers','availability','violations','medical_card','references'];
   const asked=o.questions_asked||[];
   document.getElementById('qRow').innerHTML=allQ.map(q=>{
     const done=asked.includes('ask_'+q);
     return '<span class="q-chip '+(done?'q-done':'q-open')+'">'+q.replace(/_/g,' ')+'</span>';
   }).join('');
+
+  // Show/hide negotiation buttons based on stage
+  const isNeg=o.stage==='negotiation';
+  ['btnNegPay','btnNegHome','btnNegBonus','btnNegConcern'].forEach(id=>{
+    document.getElementById(id).style.display=isNeg?'':'none';
+  });
 
   // timeline
   if(act){
