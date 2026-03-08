@@ -229,10 +229,11 @@ def rollout_func(prompts, trainer):
     print(f"Rollout done: {len(all_env_rewards)} episodes, mean_reward={mean_r:.2f}, std={std_r:.2f}")
 
     # Extra fields (env_reward) are forwarded to reward functions via **kwargs
+    # TRL expects logprobs as list[list[tuple]] where each entry is (logprob_value,)
     return {
         "prompt_ids": all_prompt_ids,
         "completion_ids": all_completion_ids,
-        "logprobs": all_logprobs,
+        "logprobs": [[(lp,) for lp in seq] for seq in all_logprobs],
         "env_reward": all_env_rewards,
     }
 
