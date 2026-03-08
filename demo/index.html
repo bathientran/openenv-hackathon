@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Recruit Env</title>
+<title>Driver Recruit Environment</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -12,7 +12,7 @@
   --bg:#09090b;--s1:#111113;--s2:#18181b;--s3:#27272a;
   --b1:#27272a;--b2:#3f3f46;
   --t1:#fafafa;--t2:#a1a1aa;--t3:#71717a;
-  --green:#22c55e;--red:#ef4444;--amber:#f59e0b;--blue:#3b82f6;--violet:#8b5cf6;--rose:#f43f5e;
+  --green:#22c55e;--red:#ef4444;--amber:#f59e0b;--blue:#3b82f6;--violet:#8b5cf6;--rose:#f43f5e;--cyan:#06b6d4;--orange:#f97316;
 }
 body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t1);-webkit-font-smoothing:antialiased}
 .mono{font-family:'IBM Plex Mono',monospace}
@@ -21,27 +21,26 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .hero{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 24px;position:relative;overflow:hidden}
 .hero::before{content:'';position:absolute;top:-200px;left:50%;transform:translateX(-50%);width:800px;height:800px;background:radial-gradient(circle,rgba(139,92,246,0.06) 0%,transparent 70%);pointer-events:none}
 .hero-eyebrow{font-size:13px;font-weight:500;color:var(--violet);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:20px}
-.hero h1{font-size:clamp(2rem,5vw,3.5rem);font-weight:700;letter-spacing:-0.03em;line-height:1.1;text-align:center;max-width:600px;margin-bottom:16px}
-.hero-sub{color:var(--t2);font-size:17px;line-height:1.6;text-align:center;max-width:520px;margin-bottom:48px}
+.hero h1{font-size:clamp(2rem,5vw,3.5rem);font-weight:700;letter-spacing:-0.03em;line-height:1.1;text-align:center;max-width:700px;margin-bottom:16px}
+.hero-sub{color:var(--t2);font-size:17px;line-height:1.6;text-align:center;max-width:560px;margin-bottom:48px}
 
-.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--b1);border:1px solid var(--b1);border-radius:12px;overflow:hidden;max-width:720px;width:100%;margin-bottom:48px}
-.card{background:var(--s1);padding:28px 24px}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--b1);border:1px solid var(--b1);border-radius:12px;overflow:hidden;max-width:900px;width:100%;margin-bottom:48px}
+.card{background:var(--s1);padding:24px 20px}
 .card-num{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--t3);margin-bottom:10px}
 .card h3{font-size:14px;font-weight:600;margin-bottom:6px}
 .card p{font-size:13px;color:var(--t2);line-height:1.55}
-@media(max-width:640px){.cards{grid-template-columns:1fr}}
+@media(max-width:800px){.cards{grid-template-columns:1fr 1fr}}
+@media(max-width:500px){.cards{grid-template-columns:1fr}}
 
 .btn{display:inline-flex;align-items:center;gap:8px;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:all .15s}
 .btn-white{background:var(--t1);color:var(--bg)}
 .btn-white:hover{opacity:.9}
-.btn-ghost{background:transparent;border:1px solid var(--b2);color:var(--t2)}
-.btn-ghost:hover{border-color:var(--t3);color:var(--t1)}
 
 .env-input{background:var(--s2);border:1px solid var(--b1);color:var(--t2);padding:8px 12px;border-radius:6px;font-size:13px;font-family:'IBM Plex Mono',monospace;width:240px;margin-top:16px;text-align:center}
 .env-input:focus{outline:none;border-color:var(--b2)}
 
 /* ─── GAME ─── */
-.game{display:none;max-width:1200px;margin:0 auto;padding:16px 20px 40px}
+.game{display:none;max-width:1280px;margin:0 auto;padding:16px 20px 40px}
 .game.on{display:block}
 
 /* Top bar */
@@ -70,14 +69,14 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .delta-down{color:var(--red)}
 
 /* Layout */
-.layout{display:grid;grid-template-columns:280px 1fr 280px;gap:16px;min-height:calc(100vh - 120px)}
+.layout{display:grid;grid-template-columns:260px 1fr 260px;gap:16px;min-height:calc(100vh - 120px)}
 @media(max-width:1000px){.layout{grid-template-columns:1fr}}
 .right-col{display:flex;flex-direction:column;gap:12px}
 
 /* Sidebar */
 .sidebar{display:flex;flex-direction:column;gap:12px}
 .pane{background:var(--s1);border:1px solid var(--b1);border-radius:10px;overflow:hidden}
-.pane-head{font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;padding:12px 14px 8px}
+.pane-head{font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;padding:12px 14px 8px;display:flex;align-items:center;justify-content:space-between}
 
 .job{padding:10px 14px;border-bottom:1px solid var(--b1);font-size:13px;cursor:default;transition:background .1s}
 .job:last-child{border-bottom:none}
@@ -92,56 +91,88 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .info-cat{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;color:var(--violet);text-transform:uppercase;letter-spacing:.04em}
 .info-empty{padding:14px;color:var(--t3);font-size:13px;font-style:italic}
 
-.q-row{display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px}
-.q-chip{font-size:11px;padding:3px 10px;border-radius:4px;font-weight:500}
-.q-done{background:var(--s3);color:var(--t1)}
-.q-open{background:transparent;border:1px solid var(--b1);color:var(--t3)}
+.crm-field{padding:5px 14px;border-bottom:1px solid var(--b1);font-size:12px;display:flex;justify-content:space-between}
+.crm-field:last-child{border-bottom:none}
+.crm-key{color:var(--t3);font-family:'IBM Plex Mono',monospace;font-size:11px}
+.crm-val{color:var(--t1)}
+.crm-empty{padding:14px;color:var(--t3);font-size:13px;font-style:italic}
 
 /* Main area */
 .main{display:flex;flex-direction:column;gap:12px}
 
 /* Timeline */
-.timeline{flex:1;background:var(--s1);border:1px solid var(--b1);border-radius:10px;padding:16px;overflow-y:auto;max-height:calc(100vh - 240px);min-height:320px}
+.timeline{flex:1;background:var(--s1);border:1px solid var(--b1);border-radius:10px;padding:16px;overflow-y:auto;max-height:calc(100vh - 320px);min-height:320px}
 .tl-entry{display:flex;gap:12px;margin-bottom:16px;animation:slideIn .25s ease}
 @keyframes slideIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .tl-dot-col{display:flex;flex-direction:column;align-items:center;padding-top:4px}
 .tl-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
 .tl-line{width:1px;flex:1;background:var(--b1);margin-top:4px}
 .tl-content{flex:1;min-width:0}
-.tl-head{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.tl-head{display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap}
 .tl-action{font-size:13px;font-weight:600}
 .tl-reward{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500}
 .tl-reward.pos{color:var(--green)}.tl-reward.neg{color:var(--red)}.tl-reward.zero{color:var(--t3)}
+.tl-tool-badge{font-size:10px;font-weight:600;padding:1px 6px;border-radius:3px;text-transform:uppercase;letter-spacing:.04em}
+.badge-crm{background:rgba(6,182,212,.12);color:var(--cyan)}
+.badge-messaging{background:rgba(139,92,246,.12);color:var(--violet)}
+.badge-approval{background:rgba(249,115,22,.12);color:var(--orange)}
+.badge-workflow{background:rgba(113,113,122,.15);color:var(--t3)}
 .tl-body{font-size:13px;color:var(--t2);line-height:1.55;padding:8px 12px;background:var(--s2);border-radius:6px;border-left:2px solid var(--b1)}
 .tl-body.good{border-left-color:var(--green)}
 .tl-body.bad{border-left-color:var(--red)}
 .tl-step{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t3)}
 
-/* Actions */
-.actions{background:var(--s1);border:1px solid var(--b1);border-radius:10px;padding:12px 14px}
-.act-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.act-sep{width:1px;height:24px;background:var(--b1);margin:0 4px}
-.act{padding:7px 14px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;border:1px solid var(--b1);background:var(--s2);color:var(--t2);transition:all .12s;white-space:nowrap}
+/* Tool sections */
+.tool-section{background:var(--s1);border:1px solid var(--b1);border-radius:10px;padding:10px 14px}
+.tool-section-head{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.tool-section-head .dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+
+.act-grid{display:flex;flex-wrap:wrap;gap:6px}
+.act{padding:6px 12px;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid var(--b1);background:var(--s2);color:var(--t2);transition:all .12s;white-space:nowrap}
 .act:hover{background:var(--s3);color:var(--t1);border-color:var(--b2)}
+.act:disabled{opacity:.3;cursor:not-allowed}
 .act-go{border-color:rgba(34,197,94,.3);color:var(--green)}
 .act-go:hover{background:rgba(34,197,94,.1);border-color:var(--green)}
 .act-no{border-color:rgba(239,68,68,.2);color:var(--red)}
 .act-no:hover{background:rgba(239,68,68,.08);border-color:var(--red)}
+.act-warn{border-color:rgba(245,158,11,.2);color:var(--amber)}
+.act-warn:hover{background:rgba(245,158,11,.08);border-color:var(--amber)}
+
+/* Pipeline */
+.pipeline{background:var(--s1);border:1px solid var(--b1);border-radius:10px;padding:10px 14px}
+.pipe-stages{display:flex;gap:2px;align-items:center}
+.pipe-stage{font-size:10px;font-weight:600;padding:4px 8px;border-radius:4px;text-transform:uppercase;letter-spacing:.04em;background:var(--s2);color:var(--t3);border:1px solid var(--b1)}
+.pipe-stage.active{background:rgba(139,92,246,.15);color:var(--violet);border-color:var(--violet)}
+.pipe-stage.done{background:rgba(34,197,94,.1);color:var(--green);border-color:rgba(34,197,94,.3)}
+.pipe-stage.fail{background:rgba(239,68,68,.1);color:var(--red);border-color:rgba(239,68,68,.3)}
+.pipe-arrow{color:var(--t3);font-size:10px}
+
+/* Pending reply indicator */
+.pending-badge{font-size:11px;font-weight:500;padding:3px 10px;border-radius:4px;background:rgba(139,92,246,.12);color:var(--violet);animation:pulse 1.5s ease infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
 
 /* Modal */
 .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
 .modal-bg.on{display:flex}
-.modal{background:var(--s1);border:1px solid var(--b1);border-radius:12px;padding:20px;width:380px;max-width:90vw}
+.modal{background:var(--s1);border:1px solid var(--b1);border-radius:12px;padding:20px;width:420px;max-width:90vw}
 .modal h3{font-size:14px;font-weight:600;margin-bottom:14px}
 .modal-job{display:block;width:100%;text-align:left;background:var(--s2);border:1px solid var(--b1);color:var(--t1);padding:10px 12px;border-radius:6px;margin-bottom:6px;cursor:pointer;font-size:13px;transition:border-color .12s}
 .modal-job:hover{border-color:var(--violet)}
 .modal-cancel{display:block;width:100%;text-align:center;background:transparent;border:1px solid var(--b1);color:var(--t3);padding:8px;border-radius:6px;cursor:pointer;font-size:13px;margin-top:8px}
 .modal-cancel:hover{color:var(--t2)}
 
+/* Input modal */
+.modal input[type="text"]{width:100%;background:var(--s2);border:1px solid var(--b1);color:var(--t1);padding:8px 12px;border-radius:6px;font-size:13px;font-family:'IBM Plex Mono',monospace;margin-bottom:8px}
+.modal input[type="text"]:focus{outline:none;border-color:var(--violet)}
+.modal-row{display:flex;gap:8px;margin-top:8px}
+.modal-row .btn{flex:1;justify-content:center;padding:8px;font-size:13px}
+.modal-btn-go{background:var(--violet);color:white;border:none;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer}
+.modal-btn-go:hover{opacity:.9}
+
 /* End screen */
 .endscreen{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;align-items:center;justify-content:center;backdrop-filter:blur(8px)}
 .endscreen.on{display:flex}
-.end-card{background:var(--s1);border:1px solid var(--b1);border-radius:14px;padding:40px 36px;text-align:center;width:400px;max-width:90vw}
+.end-card{background:var(--s1);border:1px solid var(--b1);border-radius:14px;padding:40px 36px;text-align:center;width:440px;max-width:90vw}
 .end-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px}
 .end-title{font-size:28px;font-weight:700;letter-spacing:-0.02em;margin-bottom:6px}
 .end-sub{font-size:13px;color:var(--t2);margin-bottom:28px;line-height:1.5}
@@ -149,40 +180,44 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .end-stat{background:var(--s1);padding:14px 8px}
 .end-stat-val{font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600}
 .end-stat-lbl{font-size:11px;color:var(--t3);margin-top:2px}
-.end-verdict{font-size:13px;margin-bottom:24px;line-height:1.5}
-
-.placeable-tag{font-size:11px;font-weight:500;padding:2px 8px;border-radius:4px;font-family:'IBM Plex Mono',monospace}
-.pt-yes{background:rgba(34,197,94,.1);color:var(--green)}
-.pt-no{background:rgba(239,68,68,.1);color:var(--red)}
 
 /* Hidden info toggle */
 .hidden-info.off{display:none}
 .toggle-hidden{background:var(--s2);border:1px solid var(--b1);color:var(--t3);padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer;margin-left:12px}
 .toggle-hidden:hover{color:var(--t2);border-color:var(--b2)}
+
+/* Stage select */
+.stage-select{background:var(--s2);border:1px solid var(--b1);color:var(--t1);padding:4px 8px;border-radius:4px;font-size:12px;font-family:'IBM Plex Mono',monospace}
+.stage-select:focus{outline:none;border-color:var(--violet)}
 </style>
 </head>
 <body>
 
 <div class="hero" id="hero">
-  <div class="hero-eyebrow">OpenEnv Hackathon</div>
-  <h1>Can an AI learn to recruit truck drivers?</h1>
-  <p class="hero-sub">An RL environment where agents discover hidden preferences through conversation, avoid trap jobs, and manage trust &mdash; all under time pressure.</p>
+  <div class="hero-eyebrow">OpenEnv Hackathon &mdash; Long-Horizon RL</div>
+  <h1>Train an AI to recruit truck drivers through tool calls</h1>
+  <p class="hero-sub">A multi-turn RL environment where agents use CRM, messaging, approval, and workflow tools across 40-70 step episodes to screen candidates, avoid trap jobs, and close hires.</p>
 
   <div class="cards">
     <div class="card">
       <div class="card-num mono">01</div>
-      <h3>Hidden information</h3>
-      <p>Only the name is visible. CDL class, deal breakers, pay &mdash; everything must be discovered through screening.</p>
+      <h3>Tool calling</h3>
+      <p>4 tools &mdash; CRM, messaging, approval, workflow. The agent must call the right tool with the right action at each step.</p>
     </div>
     <div class="card">
       <div class="card-num mono">02</div>
-      <h3>Trap jobs</h3>
-      <p>Jobs that look perfect on paper but violate a driver's deal breakers. Skip screening and you'll submit the wrong one.</p>
+      <h3>Long horizon</h3>
+      <p>Episodes span 40-70 steps through a full recruiting pipeline: lead &rarr; contacted &rarr; interested &rarr; approval &rarr; offer &rarr; hired.</p>
     </div>
     <div class="card">
       <div class="card-num mono">03</div>
-      <h3>Trust budget</h3>
-      <p>Every action decays trust. Impatient drivers ghost in 6 steps. Suspicious drivers hide info until they trust you.</p>
+      <h3>Hidden information</h3>
+      <p>Driver preferences, deal breakers, and personality are hidden. Must be discovered through screening messages.</p>
+    </div>
+    <div class="card">
+      <div class="card-num mono">04</div>
+      <h3>Trap jobs</h3>
+      <p>Jobs that look perfect but violate deal breakers. Skip screening and you'll hire for the wrong one &mdash; big negative reward.</p>
     </div>
   </div>
 
@@ -202,76 +237,110 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
     <div class="topbar-stats">
       <div class="ts">
         <div class="ts-label">Stage</div>
-        <div class="ts-val" id="uiStage">outreach</div>
+        <div class="ts-val" id="uiStage">lead</div>
       </div>
       <div class="ts">
         <div class="ts-label">Step</div>
-        <div class="ts-val"><span id="uiStep">0</span><span style="color:var(--t3)"> / <span id="uiMax">15</span></span></div>
+        <div class="ts-val"><span id="uiStep">0</span><span style="color:var(--t3)"> / 100</span></div>
       </div>
       <div class="ts">
         <div class="ts-label">Reward</div>
         <div class="ts-val" id="uiRew">0.0</div>
       </div>
-      <div class="trust-wrap">
-        <div class="ts-label">Trust</div>
-        <div class="trust-track"><div class="trust-fill" id="tFill"></div></div>
-        <div class="trust-num"><span class="mono" id="tVal">0.50</span><span class="mono delta" id="tDelta"></span></div>
-      </div>
-      <span class="placeable-tag hidden-info off" id="uiPlace"></span>
+      <div id="pendingBadge" style="display:none" class="pending-badge">Unread reply</div>
       <button class="toggle-hidden" onclick="toggleHidden()">Show hidden</button>
     </div>
   </div>
 
-  <div class="layout">
+  <!-- Pipeline -->
+  <div class="pipeline">
+    <div class="pipe-stages" id="pipeStages"></div>
+  </div>
+
+  <div class="layout" style="margin-top:12px">
     <div class="sidebar">
       <div class="pane" id="jobsPane">
         <div class="pane-head">Jobs</div>
         <div id="jobsList"></div>
       </div>
       <div class="pane">
-        <div class="pane-head">Questions</div>
-        <div class="q-row" id="qRow"></div>
+        <div class="pane-head">CRM Record</div>
+        <div id="crmList"><div class="crm-empty">Not loaded &mdash; use crm.read_candidate</div></div>
       </div>
     </div>
     <div class="main">
       <div class="timeline" id="tl"></div>
-      <div class="actions">
-        <div class="act-row">
-          <button class="act" onclick="doAction('send_text')">Text</button>
-          <button class="act" onclick="doAction('call_candidate')">Call</button>
-          <div class="act-sep"></div>
-          <button class="act" onclick="doAction('ask_experience')">Experience</button>
-          <button class="act" onclick="doAction('ask_home_time')">Home time</button>
-          <button class="act" onclick="doAction('ask_pay')">Pay</button>
-          <button class="act" onclick="doAction('ask_equipment')">Equipment</button>
-          <button class="act" onclick="doAction('ask_route')">Route</button>
-          <button class="act" onclick="doAction('ask_deal_breakers')">Deal breakers</button>
-          <button class="act" onclick="doAction('ask_availability')">Availability</button>
-          <button class="act" onclick="doAction('ask_violations')">Violations</button>
-          <button class="act" onclick="doAction('ask_medical_card')">Medical card</button>
-          <button class="act" onclick="doAction('ask_references')">References</button>
-          <div class="act-sep"></div>
-          <button class="act" onclick="pickJob('pitch_job')">Pitch</button>
-          <button class="act" onclick="pickJob('match_to_job')">Match</button>
-          <div class="act-sep"></div>
-          <button class="act" onclick="doAction('negotiate_pay')" id="btnNegPay" style="display:none">Negotiate pay</button>
-          <button class="act" onclick="doAction('negotiate_home_time')" id="btnNegHome" style="display:none">Negotiate home time</button>
-          <button class="act" onclick="doAction('offer_signing_bonus')" id="btnNegBonus" style="display:none">Signing bonus</button>
-          <button class="act" onclick="doAction('address_concern')" id="btnNegConcern" style="display:none">Address concern</button>
-          <button class="act act-go" onclick="doAction('submit_application')">Submit</button>
-          <button class="act act-no" onclick="doAction('reject_candidate')">Reject</button>
+
+      <!-- Tool: CRM -->
+      <div class="tool-section">
+        <div class="tool-section-head"><span class="dot" style="background:var(--cyan)"></span><span style="color:var(--cyan)">CRM</span></div>
+        <div class="act-grid">
+          <button class="act" onclick="doTool('crm','read_candidate')">read_candidate</button>
+          <button class="act" onclick="showStageModal()">update_stage</button>
+          <button class="act" onclick="showFieldModal()">update_field</button>
+          <button class="act" onclick="showNoteModal()">add_note</button>
+        </div>
+      </div>
+
+      <!-- Tool: Messaging -->
+      <div class="tool-section">
+        <div class="tool-section-head"><span class="dot" style="background:var(--violet)"></span><span style="color:var(--violet)">Messaging</span></div>
+        <div class="act-grid" id="msgGrid">
+          <button class="act" onclick="doMsg('greeting')">greeting</button>
+          <button class="act" onclick="doMsg('call')">call</button>
+          <span style="width:1px;height:24px;background:var(--b1)"></span>
+          <button class="act" onclick="doMsg('experience')">experience</button>
+          <button class="act" onclick="doMsg('home_time')">home time</button>
+          <button class="act" onclick="doMsg('pay')">pay</button>
+          <button class="act" onclick="doMsg('equipment')">equipment</button>
+          <button class="act" onclick="doMsg('route')">route</button>
+          <button class="act" onclick="doMsg('deal_breakers')">deal breakers</button>
+          <button class="act" onclick="doMsg('availability')">availability</button>
+          <button class="act" onclick="doMsg('violations')">violations</button>
+          <button class="act" onclick="doMsg('medical_card')">medical card</button>
+          <button class="act" onclick="doMsg('references')">references</button>
+          <span style="width:1px;height:24px;background:var(--b1)"></span>
+          <button class="act act-warn" onclick="showJobModal('pitch')">pitch job</button>
+          <button class="act act-warn" onclick="showJobModal('offer')">send offer</button>
+          <span style="width:1px;height:24px;background:var(--b1)"></span>
+          <button class="act" onclick="doMsg('negotiate_pay')">negotiate pay</button>
+          <button class="act" onclick="doMsg('negotiate_home_time')">negotiate home</button>
+          <button class="act" onclick="doMsg('signing_bonus')">signing bonus</button>
+          <button class="act" onclick="doMsg('address_concern')">address concern</button>
+          <span style="width:1px;height:24px;background:var(--b1)"></span>
+          <button class="act act-go" onclick="doTool('messaging','read_reply')">read_reply</button>
+        </div>
+      </div>
+
+      <!-- Tool: Approval + Workflow -->
+      <div style="display:flex;gap:12px">
+        <div class="tool-section" style="flex:1">
+          <div class="tool-section-head"><span class="dot" style="background:var(--orange)"></span><span style="color:var(--orange)">Approval</span></div>
+          <div class="act-grid">
+            <button class="act" onclick="showJobModal('request_approval')">request_approval</button>
+            <button class="act" onclick="doTool('approval','check_approval')">check_approval</button>
+          </div>
+        </div>
+        <div class="tool-section" style="flex:1">
+          <div class="tool-section-head"><span class="dot" style="background:var(--t3)"></span><span style="color:var(--t3)">Workflow</span></div>
+          <div class="act-grid">
+            <button class="act" onclick="doTool('workflow','wait')">wait</button>
+            <button class="act act-go" onclick="showStageModal('hired')">hire (finish)</button>
+            <button class="act act-no" onclick="doStage('lost')">reject (lost)</button>
+          </div>
         </div>
       </div>
     </div>
     <div class="right-col">
       <div class="pane">
-        <div class="pane-head">Discovered</div>
-        <div id="infoList"><div class="info-empty">No info yet</div></div>
+        <div class="pane-head">Discovered Info</div>
+        <div id="infoList"><div class="info-empty">No info yet &mdash; send messages and read replies</div></div>
       </div>
     </div>
   </div>
 </div>
 
+<!-- Job picker modal -->
 <div class="modal-bg" id="modalBg">
   <div class="modal">
     <h3 id="modalTitle">Select job</h3>
@@ -280,6 +349,56 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
   </div>
 </div>
 
+<!-- Stage modal -->
+<div class="modal-bg" id="stageModalBg">
+  <div class="modal">
+    <h3>Update Pipeline Stage</h3>
+    <div id="stageModalBtns"></div>
+    <button class="modal-cancel" onclick="closeStageModal()">Cancel</button>
+  </div>
+</div>
+
+<!-- Field modal -->
+<div class="modal-bg" id="fieldModalBg">
+  <div class="modal">
+    <h3>Update CRM Field</h3>
+    <select id="fieldSelect" class="stage-select" style="width:100%;margin-bottom:8px;padding:8px">
+      <option value="cdl_class">cdl_class</option>
+      <option value="years_experience">years_experience</option>
+      <option value="endorsements">endorsements</option>
+      <option value="location">location</option>
+      <option value="home_time_pref">home_time_pref</option>
+      <option value="pay_expectation">pay_expectation</option>
+      <option value="equipment_pref">equipment_pref</option>
+      <option value="route_pref">route_pref</option>
+      <option value="deal_breakers">deal_breakers</option>
+      <option value="availability">availability</option>
+      <option value="violations">violations</option>
+      <option value="medical_card">medical_card</option>
+      <option value="references">references</option>
+      <option value="matched_job">matched_job</option>
+    </select>
+    <input type="text" id="fieldValue" placeholder="Value..." />
+    <div class="modal-row">
+      <button class="modal-btn-go" onclick="submitField()">Save</button>
+      <button class="modal-cancel" onclick="closeFieldModal()" style="margin-top:0">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Note modal -->
+<div class="modal-bg" id="noteModalBg">
+  <div class="modal">
+    <h3>Add CRM Note</h3>
+    <input type="text" id="noteValue" placeholder="Note text..." />
+    <div class="modal-row">
+      <button class="modal-btn-go" onclick="submitNote()">Add</button>
+      <button class="modal-cancel" onclick="closeNoteModal()" style="margin-top:0">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- End screen -->
 <div class="endscreen" id="endscreen">
   <div class="end-card">
     <div class="end-label" id="endLabel"></div>
@@ -288,24 +407,25 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
     <div class="end-grid">
       <div class="end-stat"><div class="end-stat-val" id="erRew"></div><div class="end-stat-lbl">Reward</div></div>
       <div class="end-stat"><div class="end-stat-val" id="erStep"></div><div class="end-stat-lbl">Steps</div></div>
-      <div class="end-stat"><div class="end-stat-val" id="erTrust"></div><div class="end-stat-lbl">Trust</div></div>
+      <div class="end-stat"><div class="end-stat-val" id="erStage"></div><div class="end-stat-lbl">Final Stage</div></div>
     </div>
-    <div class="end-verdict" id="endVerdict"></div>
     <button class="btn btn-white" onclick="startGame()">Play again</button>
   </div>
 </div>
 
 <script>
-let ENV='',WS=null,S={obs:null,rew:0,pt:0,done:false,wp:true,jobs:[]};
+let ENV='',WS=null;
+let S={obs:null,rew:0,done:false,jobs:[],stepCount:0};
 let showHidden=false;
+
+const STAGES=['lead','contacted','interested','approval_pending','offer_sent','hired'];
+const FAIL_STAGES=['lost','ghosted'];
+
 function toggleHidden(){
   showHidden=!showHidden;
-  document.querySelectorAll('.hidden-info').forEach(el=>{
-    el.classList.toggle('off',!showHidden);
-  });
+  document.querySelectorAll('.hidden-info').forEach(el=>el.classList.toggle('off',!showHidden));
   document.querySelector('.toggle-hidden').textContent=showHidden?'Hide hidden':'Show hidden';
 }
-let pendingResolve=null,pendingAct=null,pendingJid=null;
 
 function wsUrl(){
   const base=document.getElementById('envUrl').value.replace(/\/$/,'');
@@ -335,8 +455,9 @@ function connectWS(){
   });
 }
 
+let pendingResolve=null;
 function wsSend(msg){
-  return new Promise((resolve)=>{
+  return new Promise(resolve=>{
     pendingResolve=resolve;
     WS.send(JSON.stringify(msg));
   });
@@ -347,7 +468,7 @@ async function startGame(){
   document.getElementById('game').classList.add('on');
   document.getElementById('endscreen').classList.remove('on');
   document.getElementById('tl').innerHTML='';
-  S={obs:null,rew:0,pt:0,done:false,wp:true,jobs:[]};
+  S={obs:null,rew:0,done:false,jobs:[],stepCount:0};
   try{
     await connectWS();
     const d=await wsSend({type:'reset'});
@@ -359,52 +480,55 @@ async function startGame(){
   }
 }
 
-async function doAction(t,j){
+// --- Tool actions ---
+async function doTool(tool,action,extra){
   if(S.done||!WS)return;
-  const d=await wsSend({type:'step',data:{action_type:t,job_id:j!==undefined?j:-1}});
-  handle(d,t,j);
+  const data={tool,action,...(extra||{})};
+  const d=await wsSend({type:'step',data});
+  handle(d,tool+'.'+action,data);
 }
 
-function handle(d,act,jid){
+async function doMsg(topic,jobId){
+  const extra={topic};
+  if(jobId!==undefined)extra.job_id=jobId;
+  await doTool('messaging','send_message',extra);
+}
+
+async function doStage(stage){
+  await doTool('crm','update_stage',{stage});
+}
+
+// --- Handle response ---
+function handle(d,label,actionData){
   const o=d.observation,rw=d.reward||0;
-  S.pt=S.obs?S.obs.trust:o.trust;
-  S.obs=o; S.rew+=rw; S.done=d.done; S.wp=o.was_placeable;
-  render(o,rw,act,jid);
-  if(d.done) setTimeout(()=>showEnd(o),500);
+  S.obs=o; S.rew+=rw; S.done=d.done;
+  if(o.steps_taken!==undefined)S.stepCount=o.steps_taken;
+  else if(label)S.stepCount++;
+  render(o,rw,label,actionData);
+  if(d.done)setTimeout(()=>showEnd(o),500);
 }
 
-function render(o,rw,act,jid){
+function render(o,rw,label,actionData){
+  // Driver info
   document.getElementById('dName').textContent=o.driver_name;
   document.getElementById('av').textContent=o.driver_name?o.driver_name[0]:'?';
-  const pe=document.getElementById('dPers');
-  pe.textContent=o.personality; pe.className='pill pill-'+o.personality+' hidden-info'+(showHidden?'':' off');
 
+  // Stage
   document.getElementById('uiStage').textContent=o.stage;
-  document.getElementById('uiStep').textContent=o.steps_taken;
-  document.getElementById('uiMax').textContent=o.max_steps;
+  document.getElementById('uiStep').textContent=S.stepCount;
+
+  // Reward
   const re=document.getElementById('uiRew');
   re.textContent=(S.rew>=0?'+':'')+S.rew.toFixed(1);
   re.style.color=S.rew>=0?'var(--green)':'var(--red)';
-  re.parentElement.className='ts hidden-info'+(showHidden?'':' off');
 
-  // trust
-  const tf=document.getElementById('tFill');
-  tf.style.width=(o.trust*100)+'%';
-  tf.style.background=o.trust>=.5?'var(--green)':o.trust>=.2?'var(--amber)':'var(--red)';
-  document.getElementById('tVal').textContent=o.trust.toFixed(3);
-  document.getElementById('tVal').parentElement.className='trust-num hidden-info'+(showHidden?'':' off');
-  const dd=document.getElementById('tDelta'),dt=o.trust-S.pt;
-  if(act){
-    if(dt>0){dd.textContent='+'+dt.toFixed(3);dd.className='mono delta delta-up'}
-    else if(dt<0){dd.textContent=dt.toFixed(3);dd.className='mono delta delta-down'}
-    else{dd.textContent='';dd.className='mono delta'}
-  }else{dd.textContent='';dd.className='mono delta'}
+  // Pending reply
+  document.getElementById('pendingBadge').style.display=o.pending_reply?'':'none';
 
-  const pl=document.getElementById('uiPlace');
-  if(o.was_placeable){pl.textContent='FIT '+o.best_possible_score;pl.className='placeable-tag pt-yes hidden-info'+(showHidden?'':' off')}
-  else{pl.textContent='NO FIT '+o.best_possible_score;pl.className='placeable-tag pt-no hidden-info'+(showHidden?'':' off')}
+  // Pipeline
+  renderPipeline(o.stage);
 
-  // jobs
+  // Jobs
   if(o.jobs_summary){
     const lines=o.jobs_summary.split('\n');
     document.getElementById('jobsList').innerHTML=lines.map(l=>{
@@ -419,7 +543,26 @@ function render(o,rw,act,jid){
     S.jobs=lines.map(l=>{const m=l.match(/^Job (\d+): (.+?) \u2014/);return m?{id:+m[1],label:'#'+m[1]+' '+m[2]}:null}).filter(Boolean);
   }
 
-  // discovered
+  // CRM
+  if(o.crm_summary){
+    const lines=o.crm_summary.split('\n');
+    let html='';
+    lines.forEach(l=>{
+      const fieldMatch=l.match(/^\s{2}(\w+):\s*(.+)/);
+      if(fieldMatch){
+        html+='<div class="crm-field"><span class="crm-key">'+fieldMatch[1]+'</span><span class="crm-val">'+fieldMatch[2]+'</span></div>';
+      } else if(l.startsWith('Name:')||l.startsWith('Stage:')){
+        html+='<div class="crm-field"><span class="crm-key">'+l.split(':')[0]+'</span><span class="crm-val">'+l.split(':').slice(1).join(':').trim()+'</span></div>';
+      } else if(l.trim()==='Fields: (none recorded)'){
+        html+='<div class="crm-field"><span class="crm-key" style="color:var(--t3)">no fields recorded</span></div>';
+      } else if(l.match(/^\s{2}-\s(.+)/)){
+        html+='<div class="crm-field"><span class="crm-key">note</span><span class="crm-val" style="font-style:italic">'+l.match(/^\s{2}-\s(.+)/)[1]+'</span></div>';
+      }
+    });
+    document.getElementById('crmList').innerHTML=html||'<div class="crm-empty">Empty CRM</div>';
+  }
+
+  // Discovered info
   if(o.discovered_info){
     const items=o.discovered_info.split('\n').filter(l=>l.trim());
     document.getElementById('infoList').innerHTML=items.map(l=>{
@@ -429,70 +572,153 @@ function render(o,rw,act,jid){
     }).join('');
   }
 
-  // questions
-  const allQ=['experience','home_time','pay','equipment','route','deal_breakers','availability','violations','medical_card','references'];
-  const asked=o.questions_asked||[];
-  document.getElementById('qRow').innerHTML=allQ.map(q=>{
-    const done=asked.includes('ask_'+q);
-    return '<span class="q-chip '+(done?'q-done':'q-open')+'">'+q.replace(/_/g,' ')+'</span>';
-  }).join('');
-
-  // Show/hide negotiation buttons based on stage
-  const isNeg=o.stage==='negotiation';
-  ['btnNegPay','btnNegHome','btnNegBonus','btnNegConcern'].forEach(id=>{
-    document.getElementById(id).style.display=isNeg?'':'none';
-  });
-
-  // timeline
-  if(act){
+  // Timeline
+  if(label){
     const tl=document.getElementById('tl');
-    let label=act.replace(/_/g,' ');
-    if(jid!==undefined&&jid>=0) label+=' #'+jid;
     const rwClass=rw>0?'pos':rw<0?'neg':'zero';
     const rwStr=rw>=0?'+'+rw.toFixed(1):rw.toFixed(1);
     const dotColor=rw>0?'var(--green)':rw<0?'var(--red)':'var(--b2)';
     const bodyClass=rw>0?'good':rw<0?'bad':'';
-    let html='<div class="tl-entry"><div class="tl-dot-col"><div class="tl-dot" style="background:'+dotColor+'"></div><div class="tl-line"></div></div><div class="tl-content"><div class="tl-head"><span class="tl-step mono">'+o.steps_taken+'</span><span class="tl-action">'+label+'</span><span class="tl-reward '+rwClass+'">'+rwStr+'</span></div>';
-    if(o.feedback) html+='<div class="tl-body '+bodyClass+'">'+o.feedback+'</div>';
+
+    // Tool badge
+    let toolName='';
+    if(actionData&&actionData.tool)toolName=actionData.tool;
+    else if(label.includes('.'))toolName=label.split('.')[0];
+    const badgeClass={'crm':'badge-crm','messaging':'badge-messaging','approval':'badge-approval','workflow':'badge-workflow'}[toolName]||'badge-workflow';
+    const badge=toolName?'<span class="tl-tool-badge '+badgeClass+'">'+toolName+'</span>':'';
+
+    // Parse feedback for display
+    let feedbackText='';
+    if(o.feedback){
+      try{
+        const fb=JSON.parse(o.feedback);
+        if(fb.reply)feedbackText=fb.reply;
+        else if(fb.message)feedbackText=fb.message;
+        else if(fb.error)feedbackText='Error: '+fb.error;
+        else if(fb.result)feedbackText='Result: '+fb.result+(fb.reason?' ('+fb.reason+')':'');
+        else if(fb.approval_status)feedbackText='Approval: '+fb.approval_status;
+        else if(fb.stage)feedbackText='Stage updated: '+fb.stage;
+        else if(fb.field)feedbackText=fb.field+' = '+fb.value;
+        else if(fb.elapsed)feedbackText='Time elapsed: '+fb.elapsed;
+        else feedbackText=o.feedback;
+      }catch(e){feedbackText=o.feedback}
+    }
+
+    let html='<div class="tl-entry"><div class="tl-dot-col"><div class="tl-dot" style="background:'+dotColor+'"></div><div class="tl-line"></div></div><div class="tl-content"><div class="tl-head"><span class="tl-step mono">'+S.stepCount+'</span>'+badge+'<span class="tl-action">'+label+'</span><span class="tl-reward '+rwClass+'">'+rwStr+'</span></div>';
+    if(feedbackText)html+='<div class="tl-body '+bodyClass+'">'+feedbackText+'</div>';
     html+='</div></div>';
     tl.innerHTML+=html;
     tl.scrollTop=tl.scrollHeight;
   } else if(o.feedback){
     const tl=document.getElementById('tl');
-    tl.innerHTML+='<div class="tl-entry"><div class="tl-dot-col"><div class="tl-dot" style="background:var(--violet)"></div><div class="tl-line"></div></div><div class="tl-content"><div class="tl-head"><span class="tl-step mono">0</span><span class="tl-action">New episode</span></div><div class="tl-body">'+o.feedback+'</div></div></div>';
+    let feedbackText='';
+    try{
+      const fb=JSON.parse(o.feedback);
+      feedbackText='New episode: '+o.driver_name+' &mdash; '+fb.jobs+' jobs available';
+    }catch(e){feedbackText=o.feedback}
+    tl.innerHTML+='<div class="tl-entry"><div class="tl-dot-col"><div class="tl-dot" style="background:var(--violet)"></div><div class="tl-line"></div></div><div class="tl-content"><div class="tl-head"><span class="tl-step mono">0</span><span class="tl-action">Episode start</span></div><div class="tl-body">'+feedbackText+'</div></div></div>';
   }
 }
 
-let pendAct='';
-function pickJob(t){
-  pendAct=t;
-  document.getElementById('modalTitle').textContent=t==='pitch_job'?'Pitch which job?':'Match to which job?';
+function renderPipeline(currentStage){
+  const el=document.getElementById('pipeStages');
+  const failStage=FAIL_STAGES.includes(currentStage)?currentStage:null;
+  const curIdx=STAGES.indexOf(currentStage);
+  let html='';
+  STAGES.forEach((s,i)=>{
+    let cls='pipe-stage';
+    if(failStage){cls+=' fail'}
+    else if(i<curIdx)cls+=' done';
+    else if(i===curIdx)cls+=' active';
+    html+='<span class="'+cls+'">'+s.replace('_',' ')+'</span>';
+    if(i<STAGES.length-1)html+='<span class="pipe-arrow">&rarr;</span>';
+  });
+  if(failStage){
+    html+='<span class="pipe-arrow">&rarr;</span><span class="pipe-stage fail">'+failStage+'</span>';
+  }
+  el.innerHTML=html;
+}
+
+// --- Modals ---
+let pendingModalAction='';
+
+function showJobModal(action){
+  pendingModalAction=action;
+  const titles={'pitch':'Pitch which job?','offer':'Send offer for which job?','request_approval':'Request approval for which job?'};
+  document.getElementById('modalTitle').textContent=titles[action]||'Select job';
   document.getElementById('modalJobs').innerHTML=S.jobs.map(j=>'<button class="modal-job" onclick="selJob('+j.id+')">'+j.label+'</button>').join('');
   document.getElementById('modalBg').classList.add('on');
 }
-function selJob(id){closeModal();doAction(pendAct,id)}
+function selJob(id){
+  closeModal();
+  if(pendingModalAction==='pitch'||pendingModalAction==='offer'){
+    doMsg(pendingModalAction,id);
+  } else if(pendingModalAction==='request_approval'){
+    doTool('approval','request_approval',{job_id:id});
+  }
+}
 function closeModal(){document.getElementById('modalBg').classList.remove('on')}
 
+function showStageModal(preselect){
+  const stages=['contacted','interested','approval_pending','offer_sent','hired','lost'];
+  document.getElementById('stageModalBtns').innerHTML=stages.map(s=>{
+    const cls=s==='hired'?'modal-job" style="border-color:var(--green);color:var(--green)':s==='lost'?'modal-job" style="border-color:var(--red);color:var(--red)':'modal-job';
+    return '<button class="'+cls+'" onclick="doStage(\''+s+'\');closeStageModal()">'+s.replace('_',' ')+'</button>';
+  }).join('');
+  document.getElementById('stageModalBg').classList.add('on');
+}
+function closeStageModal(){document.getElementById('stageModalBg').classList.remove('on')}
+
+function showFieldModal(){document.getElementById('fieldModalBg').classList.add('on');document.getElementById('fieldValue').value='';document.getElementById('fieldValue').focus()}
+function closeFieldModal(){document.getElementById('fieldModalBg').classList.remove('on')}
+function submitField(){
+  const f=document.getElementById('fieldSelect').value;
+  const v=document.getElementById('fieldValue').value;
+  if(!v)return;
+  closeFieldModal();
+  doTool('crm','update_field',{field:f,value:v});
+}
+
+function showNoteModal(){document.getElementById('noteModalBg').classList.add('on');document.getElementById('noteValue').value='';document.getElementById('noteValue').focus()}
+function closeNoteModal(){document.getElementById('noteModalBg').classList.remove('on')}
+function submitNote(){
+  const v=document.getElementById('noteValue').value;
+  if(!v)return;
+  closeNoteModal();
+  doTool('crm','add_note',{value:v});
+}
+
+// --- End screen ---
 function showEnd(o){
   const e=document.getElementById('endscreen');e.classList.add('on');
-  const win=o.stage==='submitted';
-  document.getElementById('endLabel').textContent=win?'PLACEMENT COMPLETE':'EPISODE ENDED';
+  const win=o.stage==='hired';
+  document.getElementById('endLabel').textContent=win?'DRIVER HIRED':'EPISODE ENDED';
   document.getElementById('endLabel').style.color=win?'var(--green)':'var(--red)';
-  document.getElementById('endTitle').textContent=win?'Driver placed':'Failed';
+  document.getElementById('endTitle').textContent=win?'Placement complete':o.stage==='ghosted'?'Driver ghosted':'Failed';
   document.getElementById('endTitle').style.color=win?'var(--green)':'var(--t1)';
-  document.getElementById('endSub').textContent=o.feedback||'';
+
+  let subText='';
+  if(o.feedback){
+    try{
+      const fb=JSON.parse(o.feedback);
+      if(fb.reason)subText=fb.reason.replace(/_/g,' ');
+      if(fb.result)subText=fb.result.replace(/_/g,' ')+(subText?' &mdash; '+subText:'');
+      if(fb.score)subText+=' (fit score: '+fb.score+')';
+      if(fb.crm_bonus)subText+=' CRM bonus: +'+fb.crm_bonus;
+    }catch(e){subText=o.feedback}
+  }
+  document.getElementById('endSub').innerHTML=subText;
 
   const rv=document.getElementById('erRew');
   rv.textContent=(S.rew>=0?'+':'')+S.rew.toFixed(1);
   rv.style.color=S.rew>=0?'var(--green)':'var(--red)';
-  document.getElementById('erStep').textContent=o.steps_taken;
-  document.getElementById('erTrust').textContent=o.trust.toFixed(2);
-
-  const v=document.getElementById('endVerdict');
-  if(S.wp&&!win) v.innerHTML='<span style="color:var(--red);font-weight:600">Regrettable failure</span><br><span style="color:var(--t3)">A good match existed (score '+o.best_possible_score+')</span>';
-  else if(!S.wp&&!win) v.innerHTML='<span style="color:var(--amber);font-weight:600">Intrinsic failure</span><br><span style="color:var(--t3)">No viable match (best score '+o.best_possible_score+')</span>';
-  else v.innerHTML='<span style="color:var(--green);font-weight:600">Successful placement</span>';
+  document.getElementById('erStep').textContent=S.stepCount;
+  document.getElementById('erStage').textContent=o.stage;
 }
+
+// Enter to submit in modals
+document.getElementById('fieldValue').addEventListener('keydown',e=>{if(e.key==='Enter')submitField()});
+document.getElementById('noteValue').addEventListener('keydown',e=>{if(e.key==='Enter')submitNote()});
 </script>
 </body>
 </html>
