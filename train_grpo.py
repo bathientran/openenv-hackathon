@@ -245,7 +245,7 @@ def main():
     parser.add_argument("--vllm-mode", default="colocate", choices=["colocate", "server"])
     parser.add_argument("--vllm-server-url", default="http://localhost:8000", help="vLLM server URL (server mode)")
     parser.add_argument("--num-episodes", type=int, default=32, help="Number of training episodes (dataset size)")
-    parser.add_argument("--num-generations", type=int, default=4, help="GRPO generations per prompt")
+    parser.add_argument("--num-generations", type=int, default=2, help="GRPO generations per prompt")
     parser.add_argument("--batch-size", type=int, default=4, help="Per-device batch size")
     parser.add_argument("--epochs", type=int, default=1, help="Number of training epochs")
     parser.add_argument("--lr", type=float, default=5e-6, help="Learning rate")
@@ -273,12 +273,14 @@ def main():
         vllm_server_base_url=args.vllm_server_url if args.vllm_mode == "server" else None,
         num_train_epochs=args.epochs,
         num_generations=args.num_generations,
-        max_completion_length=128,  # Actions are short JSON
+        max_completion_length=64,  # Actions are short JSON
         per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=4,
+        gradient_checkpointing=True,
         learning_rate=args.lr,
         logging_steps=1,
         save_steps=50,
+        bf16=True,
         report_to="none",  # Set to "wandb" if you want logging
     )
 
