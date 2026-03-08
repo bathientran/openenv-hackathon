@@ -108,75 +108,83 @@ def parse_action(text):
     return RecruitopenenvAction(action_type="ask_experience")
 
 
-def run_episode(env, completion_text):
-    """Run a full episode using the completion as the first action, then follow a fixed strategy.
+def score_action(env, completion_text):
+    """Score just the model's chosen action — no heuristic follow-up.
 
-    For GRPO without rollout_func: the model generates ONE action per prompt,
-    and we score it by running a full episode starting with that action.
+    This gives GRPO a clean signal: reward depends ONLY on the model's output,
+    not a fixed heuristic. Different actions get very different rewards,
+    creating the variance GRPO needs.
     """
     result = env.reset()
     obs = result.observation
 
-    # Use the model's completion as the first action
     action = parse_action(completion_text)
     result = env.step(action)
-    total_reward = result.reward
 
-    # Continue with a simple heuristic for remaining steps
-    obs = result.observation
-    steps = 1
-    while not result.done and steps < 15:
-        # Simple follow-up strategy based on stage
-        if obs.stage == "outreach":
-            action = RecruitopenenvAction(action_type="send_text")
-        elif obs.stage == "screening" and "experience" not in str(obs.discovered_info):
-            action = RecruitopenenvAction(action_type="ask_experience")
-        elif obs.stage == "screening" and "home" not in str(obs.discovered_info).lower():
-            action = RecruitopenenvAction(action_type="ask_home_time")
-        elif obs.stage == "screening":
-            action = RecruitopenenvAction(action_type="ask_deal_breakers")
-        elif obs.matched_job_id >= 0:
-            action = RecruitopenenvAction(action_type="submit_application")
-        else:
-            action = RecruitopenenvAction(action_type="match_to_job", job_id=0)
-        result = env.step(action)
-        obs = result.observation
-        total_reward += result.reward
-        steps += 1
+    # The step reward IS the signal — amplify it for GRPO contrast
+    step_reward = result.reward
 
-    placed = 1.0 if obs.stage == "submitted" else 0.0
-    return total_reward, placed
+    # Bonus: if the action was contextually appropriate for the stage
+    stage = obs.stage
+    action_type = action.action_type
+    stage_bonus = 0.0
+    if stage == "outreach" and action_type in ("send_text", "call_candidate"):
+        stage_bonus = 2.0
+    elif stage == "screening" and action_type.startswith("ask_"):
+        stage_bonus = 1.5
+    elif stage == "matching" and action_type in ("pitch_job", "match_to_job"):
+        stage_bonus = 2.0
+    elif stage == "matched" and action_type == "submit_application":
+        stage_bonus = 3.0
+    # Penalize clearly wrong actions
+    elif stage == "outreach" and action_type in ("submit_application", "match_to_job"):
+        stage_bonus = -3.0
+    elif stage == "screening" and action_type == "submit_application":
+        stage_bonus = -2.0
+
+    return step_reward + stage_bonus
 
 
 # --- Reward functions ---
 
 def reward_env(completions, env_url="http://localhost:8001", **kwargs):
-    """Run each completion through the environment and return rewards."""
+    """Score each completion's action choice."""
     env = RecruitopenenvEnv(base_url=env_url)
     rewards = []
     for comp in completions:
         text = comp[0]["content"] if isinstance(comp, list) else str(comp)
         try:
-            total_reward, _ = run_episode(env, text)
-            rewards.append(float(total_reward))
+            reward = score_action(env, text)
+            rewards.append(float(reward))
         except Exception:
             rewards.append(-5.0)
     env.close()
     return rewards
 
 
-def reward_placement(completions, env_url="http://localhost:8001", **kwargs):
-    """Binary placement reward."""
-    env = RecruitopenenvEnv(base_url=env_url)
+def reward_format(completions, **kwargs):
+    """Reward valid JSON action format — gives GRPO extra variance signal."""
     rewards = []
     for comp in completions:
         text = comp[0]["content"] if isinstance(comp, list) else str(comp)
+        text = text.strip()
         try:
-            _, placed = run_episode(env, text)
-            rewards.append(placed)
-        except Exception:
-            rewards.append(0.0)
-    env.close()
+            # Remove markdown fences
+            if "```" in text:
+                for part in text.split("```"):
+                    part = part.strip()
+                    if part.startswith("json"):
+                        part = part[4:].strip()
+                    if part.startswith("{"):
+                        text = part
+                        break
+            data = json.loads(text)
+            if isinstance(data, dict) and "action_type" in data:
+                rewards.append(1.0)  # Valid JSON with action_type
+            else:
+                rewards.append(-0.5)
+        except (json.JSONDecodeError, KeyError):
+            rewards.append(-1.0)  # Not valid JSON
     return rewards
 
 
@@ -187,7 +195,7 @@ def main():
     parser.add_argument("--model", default="Qwen/Qwen2.5-3B-Instruct", help="Model to train")
     parser.add_argument("--env-url", default="http://localhost:8001", help="Environment server URL")
     parser.add_argument("--num-episodes", type=int, default=256, help="Number of training episodes (dataset size)")
-    parser.add_argument("--num-generations", type=int, default=4, help="GRPO generations per prompt")
+    parser.add_argument("--num-generations", type=int, default=8, help="GRPO generations per prompt")
     parser.add_argument("--batch-size", type=int, default=2, help="Per-device batch size")
     parser.add_argument("--epochs", type=int, default=3, help="Number of training epochs")
     parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate")
@@ -263,7 +271,7 @@ def main():
     trainer_kwargs = dict(
         model=args.model,
         processing_class=tokenizer,
-        reward_funcs=[reward_env, reward_placement],
+        reward_funcs=[reward_env, reward_format],
         train_dataset=dataset,
         args=grpo_config,
     )
