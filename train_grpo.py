@@ -92,6 +92,19 @@ def format_observation(obs):
     return "\n".join(parts)
 
 
+def format_observation_compact(obs):
+    """Compact observation for embedding in completion_ids (minimal tokens)."""
+    parts = []
+    if obs.feedback:
+        # Truncate long feedback to save tokens
+        fb = obs.feedback[:200]
+        parts.append(fb)
+    parts.append(f"stage:{obs.stage}")
+    if obs.pending_reply:
+        parts.append("PENDING_REPLY")
+    return "|".join(parts)
+
+
 def parse_action(text):
     """Parse LLM output into a RecruitopenenvAction."""
     text = text.strip()
@@ -142,10 +155,16 @@ def parse_action(text):
 # --- Multi-turn rollout ---
 
 ENV_URL = "http://localhost:8001"
+MAX_COMPLETION_TOKENS = 512
 
 
 def rollout_once(trainer, env, tokenizer, prompt_text, system_prompt, max_turns=20):
-    """Run one multi-turn episode, returning concatenated ids/logprobs and reward."""
+    """Run one multi-turn episode, returning interleaved action+observation ids.
+
+    completion_ids contains: [action1_tokens, obs1_tokens, action2_tokens, obs2_tokens, ...]
+    logprobs: real logprobs for action tokens, 0.0 for observation tokens
+    env_mask: 1 for action tokens (apply gradient), 0 for observation tokens (no gradient)
+    """
     seed = random.randint(0, 2**31 - 1)
     result = env.reset(seed=seed)
     obs = result.observation
@@ -153,6 +172,7 @@ def rollout_once(trainer, env, tokenizer, prompt_text, system_prompt, max_turns=
     prompt_ids = []
     completion_ids = []
     logprobs = []
+    env_mask = []
     total_reward = 0.0
     steps = 0
 
@@ -162,6 +182,10 @@ def rollout_once(trainer, env, tokenizer, prompt_text, system_prompt, max_turns=
     ]
 
     while not result.done and steps < max_turns:
+        # Check if we're already near the token budget
+        if len(completion_ids) > MAX_COMPLETION_TOKENS - 30:
+            break
+
         current_prompt = tokenizer.apply_chat_template(
             messages, add_generation_prompt=True, tokenize=False
         )
@@ -173,11 +197,16 @@ def rollout_once(trainer, env, tokenizer, prompt_text, system_prompt, max_turns=
         if steps == 0:
             prompt_ids = list(rollout_outputs["prompt_ids"])
 
-        completion_ids.extend(rollout_outputs["completion_ids"])
-        logprobs.extend(rollout_outputs["logprobs"])
+        action_ids = list(rollout_outputs["completion_ids"])
+        action_logprobs = list(rollout_outputs["logprobs"])
+
+        # Add action tokens (these get gradients)
+        completion_ids.extend(action_ids)
+        logprobs.extend(action_logprobs)
+        env_mask.extend([1] * len(action_ids))
 
         response = rollout_outputs.get("text") or tokenizer.decode(
-            rollout_outputs["completion_ids"], skip_special_tokens=True
+            action_ids, skip_special_tokens=True
         )
         messages.append({"role": "assistant", "content": response})
 
@@ -188,17 +217,29 @@ def rollout_once(trainer, env, tokenizer, prompt_text, system_prompt, max_turns=
         steps += 1
 
         if not result.done:
+            # Tokenize compact observation and add as context (no gradients)
+            obs_text = format_observation_compact(obs)
+            obs_ids = tokenizer.encode(obs_text, add_special_tokens=False)
+            # Limit obs tokens to keep total under budget
+            max_obs = min(len(obs_ids), 40)
+            obs_ids = obs_ids[:max_obs]
+
+            completion_ids.extend(obs_ids)
+            logprobs.extend([0.0] * len(obs_ids))
+            env_mask.extend([0] * len(obs_ids))
+
             messages.append({"role": "user", "content": format_observation(obs)})
 
-    # Truncate to fit max_completion_length (TRL doesn't truncate rollout_func outputs)
-    max_len = 512
-    completion_ids = completion_ids[:max_len]
-    logprobs = logprobs[:max_len]
+    # Truncate to fit max_completion_length
+    completion_ids = completion_ids[:MAX_COMPLETION_TOKENS]
+    logprobs = logprobs[:MAX_COMPLETION_TOKENS]
+    env_mask = env_mask[:MAX_COMPLETION_TOKENS]
 
     return {
         "prompt_ids": prompt_ids,
         "completion_ids": completion_ids,
         "logprobs": logprobs,
+        "env_mask": env_mask,
         "env_reward": total_reward,
         "steps": steps,
         "final_stage": obs.stage,
@@ -214,6 +255,7 @@ def rollout_func(prompts, trainer):
     all_completion_ids = []
     all_logprobs = []
     all_env_rewards = []
+    all_env_mask = []
 
     for prompt_text in prompts:
         episode = rollout_once(trainer, env, tokenizer, prompt_text, SYSTEM_PROMPT)
@@ -222,11 +264,13 @@ def rollout_func(prompts, trainer):
             all_prompt_ids.append(episode["prompt_ids"])
             all_completion_ids.append(episode["completion_ids"])
             all_logprobs.append(episode["logprobs"])
+            all_env_mask.append(episode["env_mask"])
         else:
             tok_ids = tokenizer.encode("wait", add_special_tokens=False)
             all_prompt_ids.append(episode["prompt_ids"] or tok_ids)
             all_completion_ids.append(tok_ids)
             all_logprobs.append([0.0] * len(tok_ids))
+            all_env_mask.append([1] * len(tok_ids))
 
         all_env_rewards.append(episode["env_reward"])
         print(f"  Episode {len(all_env_rewards)}: reward={episode['env_reward']:.1f}, "
@@ -238,13 +282,12 @@ def rollout_func(prompts, trainer):
     std_r = torch.tensor(all_env_rewards).std().item()
     print(f"Rollout done: {len(all_env_rewards)} episodes, mean_reward={mean_r:.2f}, std={std_r:.2f}")
 
-    # Extra fields (env_reward) are forwarded to reward functions via **kwargs
-    # TRL expects logprobs as list[list[tuple]] where each entry is (logprob_value,)
     return {
         "prompt_ids": all_prompt_ids,
         "completion_ids": all_completion_ids,
         "logprobs": [[(lp,) for lp in seq] for seq in all_logprobs],
         "env_reward": all_env_rewards,
+        "env_mask": all_env_mask,
     }
 
 
@@ -325,7 +368,7 @@ def main():
         vllm_mode=args.vllm_mode,
         num_train_epochs=args.epochs,
         num_generations=args.num_generations,
-        max_completion_length=512,
+        max_completion_length=MAX_COMPLETION_TOKENS,
         per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=4,
         gradient_checkpointing=True,
