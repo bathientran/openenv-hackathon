@@ -249,7 +249,7 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(args.model)
 
     # Environment client
-    env = RecruitopenenvEnv(base_url=args.env_url).sync()
+    env = RecruitopenenvEnv(base_url=args.env_url)
 
     # Dataset — each prompt triggers one episode
     # The actual prompt content doesn't matter much since rollout_func
